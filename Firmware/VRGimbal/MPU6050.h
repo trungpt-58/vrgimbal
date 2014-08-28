@@ -71,8 +71,8 @@ THE SOFTWARE.
 
 //per la calibrazione aggiungo questi:
 #define GRAVITY 9.80665
-//#define MPU6000_ACCEL_SCALE_1G  (GRAVITY / (4 * 4096.0))  //--> scalatura per fondo scala 2G
-#define MPU6000_ACCEL_SCALE_1G  (GRAVITY / 4096.0)  //--> scalatura per fondo scala 8G
+#define MPU6000_ACCEL_SCALE_1G  (GRAVITY / (4 * 4096.0))  //--> scalatura per fondo scala 2G
+//#define MPU6000_ACCEL_SCALE_1G  (GRAVITY / 4096.0)  //--> scalatura per fondo scala 8G
 
 
 
@@ -621,7 +621,7 @@ class MPU6050 {
         int16_t getAccelerationX();
         int16_t getAccelerationY();
         int16_t getAccelerationZ();
-        int16_t getAccelerationN(unsigned char idx);
+        int16_t getAccelerationN(char idx);
 
         // TEMP_OUT_* registers
         int16_t getTemperature();

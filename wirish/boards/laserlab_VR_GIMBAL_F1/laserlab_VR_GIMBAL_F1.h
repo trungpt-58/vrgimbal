@@ -31,6 +31,8 @@ void boardInit(void);
 
 #define BOARD_MOTOR_EN	        42  //PC10
 
+#define BOARD_MOTOR_COUNT 3
+
 #define BOARD_MOT1_CMD_A        21  //PB5
 #define BOARD_MOT1_CMD_B        16  //PB0
 #define BOARD_MOT1_CMD_C        17  //PB1
@@ -65,6 +67,8 @@ void boardInit(void);
 
 
 /* ANALOG *********************************************/
+#define BOARD_ANALOG_COUNT 6
+
 #define BOARD_ANA1	             4  //PA4
 #define BOARD_ANA2  	         5  //PA5
 #define BOARD_ANA3      	     6  //PA6

@@ -44,6 +44,7 @@
 
 #include <main.h>
 #include "EEPROMAnything.h"
+#include "LowPassFilter2p.h"
 
 // this sets up the parameter table, and sets the default values. This
 // must be the first AP_Param variable declared to ensure its
@@ -70,11 +71,31 @@ MPU6050 mpu_yaw(&i2c2);        // Create MPU object
 bool mpu_yaw_present = false;
 
 
+LowPassFilter2p * driveLPF[3] = {NULL, NULL, NULL};
+
+void updateDriveLPF()
+{
+	float sampleFreq = 1.0f / DT_FLOAT;
+	for (int i = 0; i < 3; i++)
+	{
+		float cutFreq = (float) config.profiles[0].axisConfig[i].stepsLimit;
+		if (driveLPF[i] == NULL)
+		{
+			driveLPF[i] = new LowPassFilter2p(sampleFreq, cutFreq);
+		} else {
+			driveLPF[i]->set_cutoff_frequency(sampleFreq, cutFreq);
+		}
+	}
+}
+
 void initIMU_LPF()
 {
 	initMPUlpf(&mpu);
 	if (mpu_yaw_present)
 		initMPUlpf(&mpu_yaw);
+
+	//float tauIMU2 = (float) config.profiles[0].mpu2LPF / 1e4;  //decimi di millisec
+	setIMU2LPF(); //tauIMU2);
 }
 
 void initMPUlpf(MPU6050 * p_mpu) {
@@ -249,7 +270,7 @@ void setup()
   
   // Init PIDs to reduce floating point operations.
   initPIDs();
-
+  updateDriveLPF();
 
 #ifdef GIMBAL_ENABLE_RC
   // init RC variables
@@ -283,6 +304,7 @@ void setup()
 //    }
 //  }
 
+  bool bMPU_OK = false;
   bool bHighOk = false;
   bool bLowOk = false;
   mpu.setAddr(MPU6050_ADDRESS_AD0_HIGH);
@@ -304,17 +326,21 @@ void setup()
     	mpu_yaw.initialize();
     	mpu_yaw_present = true;
 
+    	bMPU_OK = true;
     	cliSerial->println(F("MPU6050 ok (DOUBLE SENSOR)"));
 
     } else if (bHighOk) {
     	mpu.setAddr(MPU6050_ADDRESS_AD0_HIGH);
     	mpu.initialize();
+    	bMPU_OK = true;
     	cliSerial->println(F("MPU6050 ok (HIGH)"));
     } else if (bLowOk) {
 		mpu.setAddr(MPU6050_ADDRESS_AD0_LOW);
 		mpu.initialize();
+		bMPU_OK = true;
 		cliSerial->println(F("MPU6050 ok (LOW)"));
 	} else {
+		bMPU_OK = false;
 		cliSerial->println(F("MPU6050 failed"));
 	}
 
@@ -326,16 +352,20 @@ void setup()
   initSensorOrientation();
   
   gyroReadCalibration();
+  gyroReadDeadBand();
+  accReadCalibration();
 
 #if defined ( IMU_BRUGI )
   // Init MPU Stuff
   mpu.setClockSource(MPU6050_CLOCK_PLL_ZGYRO);          // Set Clock to ZGyro
   mpu.setFullScaleGyroRange(MPU6050_GYRO_FS);           // Set Gyro Sensitivity to config.h
-  //mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);       //+- 2G
-  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_8);       //+- 8G
+  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);       //+- 2G  //TODO: verificare quale scala funziona meglio
+  //mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_8);       //+- 8G
   initMPUlpf(&mpu);                                         // Set Gyro Low Pass Filter
   mpu.setRate(0);                                       // 0=1kHz, 1=500Hz, 2=333Hz, 3=250Hz, 4=200Hz
   mpu.setSleepEnabled(false); 
+  mpu.setClockOutputEnabled(false); //TODO verificare (tratto da EvvGC)
+  mpu.setIntEnabled(0);         //TODO verificare (tratto da EvvGC)
   
   //mpu.setIntDataReadyEnabled()
 
@@ -352,11 +382,13 @@ void setup()
   {
 	mpu_yaw.setClockSource(MPU6050_CLOCK_PLL_ZGYRO);          // Set Clock to ZGyro
 	mpu_yaw.setFullScaleGyroRange(MPU6050_GYRO_FS);           // Set Gyro Sensitivity to config.h
-	//mpu_yaw.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);       //+- 2G
-	mpu_yaw.setFullScaleAccelRange(MPU6050_ACCEL_FS_8);       //+- 8G
+	mpu_yaw.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);       //+- 2G  //TODO: verificare quale scala funziona meglio
+	//mpu_yaw.setFullScaleAccelRange(MPU6050_ACCEL_FS_8);       //+- 8G
 	initMPUlpf(&mpu_yaw);                                         // Set Gyro Low Pass Filter
 	mpu_yaw.setRate(0);                                       // 0=1kHz, 1=500Hz, 2=333Hz, 3=250Hz, 4=200Hz
 	mpu_yaw.setSleepEnabled(false);
+	  mpu_yaw.setClockOutputEnabled(false); //TODO verificare (tratto da EvvGC)
+	  mpu_yaw.setIntEnabled(0);         //TODO verificare (tratto da EvvGC)
 
 	  if (config.recalibrateOnStartup)
 	  {
@@ -416,24 +448,90 @@ void setup()
   //CH3_OFF
 
   //TEO 20130607
-  gimState = GIM_IDLE;
+  if (bMPU_OK)
+	  gimState = GIM_IDLE;
+  else
+	  gimState = GIM_ERROR;
   stateStart = millis();
  
 }
 
+
+
+int32_t filterMotorDrive(int32_t oldDrive, int32_t newDrive, int32_t limit)
+{
+
+
+	/*
+	float n = (float) newDrive;
+	float o = (float) oldDrive;
+	//utilLP_float(&o, n, 1.0f / (float) (g_outputFilter + 1));
+
+	float coeff = 1.0f / (float) (g_outputFilter + 1);
+
+	 n = o * (1.0f-coeff) + n * coeff;
+
+	return (int) n;*/
+
+
+
+
+	/*
+	int n = newDrive;
+	if (limit > 0)
+	{
+		if (newDrive > (oldDrive + limit))
+		{
+			n = oldDrive + limit;
+		} else if (newDrive < (oldDrive - limit))
+		{
+			n = oldDrive - limit;
+		}
+	}*/
+
+//  int n = newDrive;
+//	if (limit > 0)
+//	{
+//		//filtro low pass
+//		n = (  oldDrive + limit * newDrive ) / limit;
+//	}
+
+	float n = newDrive;
+	if (limit > 0)
+	{
+		float CUTOFF = (float) limit;
+		float RC = 1.0f/(CUTOFF*2.0f*3.14f);
+		float dt = DT_FLOAT; // 1/SAMPLE_RATE;
+		float alpha = dt/(RC+dt);
+		float n = (float) newDrive;
+		float o = (float) oldDrive;
+		n = o * (1.0f-alpha) + n * alpha;
+	}
+	return (int) n;
+}
+
+
 /************************/
 /* PID Controller       */
 /************************/
-int32_t ComputePID(int32_t DTms, int32_t in, int32_t setPoint, int32_t *errorSum, int32_t *errorOld, int32_t Kp, int16_t Ki, int32_t Kd, int32_t * Ddelta1, int32_t * Ddelta2)
+
+int32_t ComputePID(int32_t DTus, int32_t in, int32_t setPoint, int32_t *errorSum, int32_t *errorOld, int32_t Kp, int16_t Ki, int32_t Kd, int32_t * Ddelta1, int32_t * Ddelta2)
 {
   int32_t error = setPoint - in;
+
+  //normalize the error angle between -180..180 to avoid "multiple turn" correction, in particular on yaw
+  error = error % 360000;
+  if (error > 180000)
+	  error = error - 360000;
+
+  //INTEGRAL
   int32_t Ierr;
-   
-  Ierr = error * Ki * DTms / 1000; //TEO 20131002 divido Ki qui anzich in lettura/scrittura dalla flash
-  Ierr = constrain_int32(Ierr, -(int32_t)1000*100, (int32_t)1000*100);
+  Ierr = error * (Ki * DTus / 1000) / 1000; //Ki scaling
+  Ierr = constrain_int32(Ierr, -(int32_t)1000*100, (int32_t)1000*100);  //I term saturation (could be good add an anti-windup formula)
   *errorSum += Ierr;
 
 
+  //DERIVATIVE
 #ifdef GIMBAL_DTERM_LOWPASS
 #ifdef pt1cut
     float dt = DTms / 1000;
@@ -448,92 +546,53 @@ int32_t ComputePID(int32_t DTms, int32_t in, int32_t setPoint, int32_t *errorSum
     deltaSum        = LastDterm[axis] + (dt / (pt1cut + dt)) * (deltaSum - LastDterm[axis]); // pt1 element like shown by BRM here: http://www.multiwii.com/forum/viewtopic.php?f=23&t=2624
     LastDterm[axis] = deltaSum;
 #endif
-    int32_t Dterm = (deltaSum * Kd) / DTms;
+    int32_t Dterm = 1000 * (deltaSum * Kd) / DTus;
 #else
     int32_t Dterm = Kd * (error - *errorOld) * DTms;
 #endif
+    *errorOld = error;
+
+
+  //Compute PID Output
+  int32_t out = (Kp * error) + *errorSum + Dterm;
+
+
+  return out / MOTOR_DRIVE_RESCALER;
+}
+
+int32_t ComputePIDF(int32_t DTms, int32_t in, int32_t setPoint, int32_t *errorSum, int32_t *errorOld, int32_t Kp, int16_t Ki, int32_t Kd, int32_t KdLPF, int32_t * DTermOld)
+{
+  int32_t error = setPoint - in;
+
+  //normalize the error angle between -180..180 to avoid "multiple turn" correction, in particular on yaw
+  error = error % 360000;
+  if (error > 180000)
+	  error = error - 360000;
+
+  //INTEGRAL
+  int32_t Ierr;
+  Ierr = error * Ki * DTms / 1000; //Ki scaling
+  Ierr = constrain_int32(Ierr, -(int32_t)1000*100, (int32_t)1000*100);  //I term saturation (could be good add an anti-windup formula)
+  *errorSum += Ierr;
+
+
+  //DERIVATIVE
+   // D Term
+    int32_t delta = error - *errorOld;
+    *errorOld = error;
+
+    //Derivative filter
+    int32_t DtermNew = (delta * Kd) / DTms;
+    int32_t Dterm = filterMotorDrive(*DTermOld, DtermNew, KdLPF);
+    *DTermOld = Dterm;
+
 
   /*Compute PID Output*/
   int32_t out = (Kp * error) + *errorSum + Dterm;
-  *errorOld = error;
 
-  return out / 4096;
+
+  return out / MOTOR_DRIVE_RESCALER;
 }
-
-float ComputePID_float(float DTms, float in, float setPoint, float *errorSum, float *errorOld, float Kp, float Ki, float Kd, float * Ddelta1, float * Ddelta2)
-{
-	float error = setPoint - in;
-	float Ierr;
-
-  Ierr = error * Ki * DTms;
-  Ierr = constrain(Ierr, -100000.0f, 100000.0f);
-  *errorSum += Ierr;
-
-
-#ifdef GIMBAL_DTERM_LOWPASS
-#ifdef pt1cut
-    float dt = DTms / 1000;
-#endif
-    // D Term
-    float delta = error - *errorOld;
-    *errorOld = error;
-    float deltaSum = *Ddelta1 + *Ddelta2 + delta;
-    *Ddelta2   = *Ddelta1;
-    *Ddelta1   = delta;
-#ifdef pt1cut
-    deltaSum        = LastDterm[axis] + (dt / (pt1cut + dt)) * (deltaSum - LastDterm[axis]); // pt1 element like shown by BRM here: http://www.multiwii.com/forum/viewtopic.php?f=23&t=2624
-    LastDterm[axis] = deltaSum;
-#endif
-    float Dterm = (deltaSum * Kd) / DTms;
-#else
-    float Dterm = Kd * (error - *errorOld) * DTms;
-#endif
-
-  /*Compute PID Output*/
-  float out = (Kp * error) + *errorSum + Dterm;
-  *errorOld = error;
-
-  return out / 4096;
-}
-
-float fComputePID(float DTs, float in, float setPoint, float *errorSum, float *errorOld, float Kp, float Ki, float Kd, float * Ddelta1, float * Ddelta2)
-{
-
-	Kp = Kp / 1000.0f;
-	//Ki = Ki / 1000.0f;
-	Kd = Kd / 1000.0f;
-
-	float error = setPoint - in;
-	float Ierr;
-
-  Ierr = error * Ki * DTs;
-  Ierr = constrain(Ierr, -100.0f, 100.0f);
-  *errorSum += Ierr;
-
-
-#ifdef GIMBAL_DTERM_LOWPASS
-
-  	float delta = error - *errorOld;
-    *errorOld = error;
-    float deltaSum = *Ddelta1 + *Ddelta2 + delta;
-    *Ddelta2   = *Ddelta1;
-    *Ddelta1   = delta;
-#ifdef pt1cut
-    deltaSum        = LastDterm[axis] + (DTs / (pt1cut + DTs)) * (deltaSum - LastDterm[axis]); // pt1 element like shown by BRM here: http://www.multiwii.com/forum/viewtopic.php?f=23&t=2624
-    LastDterm[axis] = deltaSum;
-#endif
-    float Dterm = (deltaSum * Kd) / DTs;
-#else
-    float Dterm = Kd * (error - *errorOld) * DTs;
-#endif
-
-  /*Compute PID Output*/
-    float out = (Kp * error) + *errorSum + Dterm;
-  *errorOld = error;
-
-  return out / 4096.0f;
-}
-
 
 /**********************************************/
 /* Main Loop                                  */
@@ -554,32 +613,6 @@ int getMotorDriveSet(uint8_t axis)
 		break;
 	}
 	return 0;
-}
-
-bool checkEsc()
-{
-	if (cliSerial->available())
-	{
-		int ch = cliSerial->read();
-		if (ch == 0x1B)
-			return true;
-	}
-	return false;
-}
-
-void print_vector(Vector3i v)
-{
-	cliSerial->print(v.x);cliSerial->print(F(" "));
-	cliSerial->print(v.y);cliSerial->print(F(" "));
-	cliSerial->print(v.z);cliSerial->print(F(" "));
-}
-
-
-void print_vector(Vector3f v)
-{
-	cliSerial->print(v.x);cliSerial->print(F(" "));
-	cliSerial->print(v.y);cliSerial->print(F(" "));
-	cliSerial->print(v.z);cliSerial->print(F(" "));
 }
 
 uint32 superfast_loopTimer = 0;
@@ -616,55 +649,17 @@ void measure_loop(bool bAppend = true)
 	ulast_motor_loop = unewloop;
 }
 
-int filterMotorDrive(int oldDrive, int newDrive, int limit)
-{
-
-
-	/*
-	float n = (float) newDrive;
-	float o = (float) oldDrive;
-	//utilLP_float(&o, n, 1.0f / (float) (g_outputFilter + 1));
-
-	float coeff = 1.0f / (float) (g_outputFilter + 1);
-
-	 n = o * (1.0f-coeff) + n * coeff;
-
-	return (int) n;*/
-
-	int n = newDrive;
-
-	if (limit > 0)
-	{
-		if (newDrive > (oldDrive + limit))
-		{
-			n = oldDrive + limit;
-		} else if (newDrive < (oldDrive - limit))
-		{
-			n = oldDrive - limit;
-		}
-	}
-	return n;
-}
-
 
 realtimeStatistics statistic_pitch;
 realtimeStatistics statistic_roll;
 realtimeStatistics statistic_yaw;
+bool bLedOn = false;
+
+realtimeStatistics main_loop_duration[19];
+
 
 void loop()
 {
-
-//	//misuro intervallo tra le chiamate
-//	uint32_t unewloop = micros();
-//	static uint32_t ulast_motor_loop = 0;
-//	if (ulast_motor_loop != 0)
-//	{
-//		uint32_t lap2 = measure_micro_delay(ulast_motor_loop, unewloop);
-//		loop_mean_lap.append((float) lap2);
-//	}
-//	ulast_motor_loop = unewloop;
-
-	//measure_loop();
 
 	int32_t pitchPIDVal;
 	int32_t rollPIDVal;
@@ -696,674 +691,658 @@ void loop()
 	static char pOutCnt = 0;
 	static uint32_t output_time = 0;
 
-	//static int stateCount = 0;
-  
 
 
-#ifdef IMU_AP
-//	//mi affido all'IMU_INT per evitare troppe letture
-//	ins.read();
-//	if (ins.num_samples_available() >= 1)
-//		ahrs.update();
+	uint32_t now = millis();
+	static uint32_t ms_last_motor_update = 0;
+	int32_t ms_lap = now - ms_last_motor_update;
+//		float pid_lap = (float) ms_lap;
+
+	uint32_t unow = micros();
+	static uint32_t u_last_motor_update = 0;
+	uint32_t pid_lap_us = measure_micro_delay( u_last_motor_update, unow);
+
+	uint32_t pid_lap = ms_lap;
+
+	bool bEnterPID = false;
+	bool bOutputDebug = false;
 
 
-	static uint32_t superfast_loopTimer = 0;
-	const uint32_t superfastloop_speed = 400;
-	static uint32_t fast_loopTimer = 0;
-	const uint32_t fastloop_speed = 2000; //4000;
-
-    uint32_t micr = micros();
-
-    if (micr - superfast_loopTimer >= superfastloop_speed) // 250 MPU6000 500 VRIMU
-    {
-        superfast_loopTimer = micr;
-        //insert here all routines called by timer_scheduler
-        //superfast_loop();
-        ins.read();
-    }
-
-    uint32_t timer	= micros();
-
-	// We want this to execute fast
-	// ----------------------------
-    if ((timer - fast_loopTimer) >= fastloop_speed && (ins.num_samples_available() >= 1)) {
-    	fast_loopTimer          = timer;
-    	ahrs.update();
-    }
-
-#endif
-
-
-#ifdef BRUGI_USE_INTERRUPT_TIMER
-	if (motorUpdate) // loop runs with motor ISR update rate (1000Hz)
+	if ((now - output_time) > (1000 / POUT_FREQ))
 	{
-#endif
-		uint32_t now = millis();
-		//uint32_t pid_lap = now - motor_loopTimer;
+		output_time = now;
+		bOutputDebug = true;
 
-		uint32_t unow = micros();
-		static uint32_t u_last_motor_update = 0;
+	}
 
-		float pid_lap = ((float) measure_micro_delay( u_last_motor_update, unow) / 1000.0f);
+	//misuro la durata dei loop ma non aggiungo alla statistica quelli con output su seriale
+	measure_loop(!bOutputDebug);
+
+	uint32_t unowlap = micros();
+	uint32_t unowlaptot = unowlap;
+
+	//if ( pid_lap >= DT_FLOAT) //DT_LOOP_MS)
+	if ( pid_lap_us >= DT_LOOP_US)
+	{
+
+		main_loop_duration[18].append( measure_micro_delay(u_last_motor_update, unow) );
+
+
 		u_last_motor_update = unow;
+		ms_last_motor_update = now;
+		bEnterPID = true;
 
-		bool bEnterPID = false;
-		bool bOutputDebug = false;
 
-		if ( pid_lap >= DT_LOOP_MS)
-		{
-			//measure_loop();
+		if (pid_lap > 10 * DT_LOOP_MS)
+			pid_lap = DT_LOOP_MS;
+		if (pid_lap_us > 10 * DT_LOOP_US)
+			pid_lap_us = DT_LOOP_US;
 
-			bEnterPID = true;
-
-			float pid_lap_sec = pid_lap / 1000.0f;
-
-			if (pid_lap > 10 * DT_LOOP_MS)
-				pid_lap = DT_LOOP_MS;
-
-			motor_loopTimer = now;
-			motorUpdate = false;
+		motor_loopTimer = now;
+		motorUpdate = false;
     
-   
-			// update IMU data
-#ifdef DEBUG_IMU_DELAY
-			uint32_t t1 = micros();
-#endif
-			readGyros();
+		readGyros();
 
-#ifdef DEBUG_IMU_DELAY
-			lap_gyros += (micros() - t1);
-			cnt_gyros++;
-#endif
-    
-			if (config.profiles[0].enableGyro) updateGyroAttitude();
-			if (config.profiles[0].enableACC) updateACCAttitude();
-#ifdef GIMBAL_ENABLE_COMPASS
-			if (config.profiles[0].enableMAG) updateMAGAttitude();
-#endif
+		main_loop_duration[0].append( measure_micro_delay(unowlap, micros()) );
+		unowlap = micros();
 
-			getAttiduteAngles();
+		if (config.profiles[0].enableGyro) updateGyroAttitude();
+
+		main_loop_duration[1].append( measure_micro_delay(unowlap, micros()) );
+		unowlap = micros();
+
+
+		if (config.profiles[0].enableACC) updateACCAttitude();
+
+		main_loop_duration[2].append( measure_micro_delay(unowlap, micros()) );
+		unowlap = micros();
+
+
+		getAttiduteAngles();
     
+		main_loop_duration[3].append( measure_micro_delay(unowlap, micros()) );
+		unowlap = micros();
+
+
+		pid_lap_us = get_gyro_lap();
+
 #ifdef GIMBAL_ENABLE_RC
-			// Evaluate RC-Signals
-			evaluateRC();
-
-			if (config.profiles[0].rcConfig[axisPITCH].absolute) {
-				utilLP_float(&pitchAngleSet, PitchPhiSet, rcLPF_tc[axisPITCH]);
-			} else if (PitchResetting) {
-				utilLP_float(&pitchAngleSet, 0, rcLPF_tc[axisPITCH]);
-				PitchPhiSet = pitchAngleSet;
-			} else {
-				utilLP_float(&pitchAngleSet, PitchPhiSet, 0.01);
-
-			}
-
-//			cliSerial->print(rollAngleSet);
-//			cliSerial->print(" ");
-			if (config.profiles[0].rcConfig[axisROLL].absolute) {
-//				cliSerial->print("A ");
-				utilLP_float(&rollAngleSet, RollPhiSet,  rcLPF_tc[axisROLL]);
-			} else if  (RollResetting) {
-				utilLP_float(&rollAngleSet, 0, rcLPF_tc[axisROLL]);
-				RollPhiSet = rollAngleSet;
-//				cliSerial->print("B ");
-			} else {
-				utilLP_float(&rollAngleSet, RollPhiSet, 0.01f);
-//				cliSerial->print("C ");
-			}
-//			cliSerial->print(rollAngleSet);
-//			cliSerial->print(" ");
-//			cliSerial->print(RollPhiSet);
-//			cliSerial->println();
-
-			if (config.profiles[0].rcConfig[axisYAW].absolute) {
-				utilLP_float(&yawAngleSet, YawPhiSet, rcLPF_tc[axisYAW]);
-			} else if (YawResetting) {
-				utilLP_float(&yawAngleSet, 0, rcLPF_tc[axisYAW]);
-				YawPhiSet = yawAngleSet;
-			} else {
-				utilLP_float(&yawAngleSet, YawPhiSet, 0.01);
-			}
 
 
+
+		// Evaluate RC-Signals
+		evaluateRC();
+		//RC pitch
+		if (config.profiles[0].rcConfig[axisPITCH].absolute) {
+			utilLP_float(&pitchAngleSet, PitchPhiSet, rcLPF_tc[axisPITCH]);
+		} else if (PitchResetting) {
+			utilLP_float(&pitchAngleSet, 0, rcLPF_tc[axisPITCH]);
+			PitchPhiSet = pitchAngleSet;
+		} else {
+			utilLP_float(&pitchAngleSet, PitchPhiSet, 0.01);
+		}
+		//RC roll
+		if (config.profiles[0].rcConfig[axisROLL].absolute) {
+			utilLP_float(&rollAngleSet, RollPhiSet,  rcLPF_tc[axisROLL]);
+		} else if  (RollResetting) {
+			utilLP_float(&rollAngleSet, 0, rcLPF_tc[axisROLL]);
+			RollPhiSet = rollAngleSet;
+		} else {
+			utilLP_float(&rollAngleSet, RollPhiSet, 0.01f);
+		}
+		//RC yaw
+		if (config.profiles[0].rcConfig[axisYAW].absolute) {
+			utilLP_float(&yawAngleSet, YawPhiSet, rcLPF_tc[axisYAW]);
+		} else if (YawResetting) {
+			utilLP_float(&yawAngleSet, 0, rcLPF_tc[axisYAW]);
+			YawPhiSet = yawAngleSet;
+		} else {
+			utilLP_float(&yawAngleSet, YawPhiSet, 0.01);
+		}
+		if (YawLocked)
+		{
+			//inganno la stabilizzazione
+			yawAngleSet = angle[axisYAW] / 1000.0;
+			YawPhiSet = yawAngleSet;
+		}
+
+		main_loop_duration[4].append( measure_micro_delay(unowlap, micros()) );
+		unowlap = micros();
 #endif
 
-			int new_pitchMotorDrive = pitchMotorDrive;
-			int new_rollMotorDrive = rollMotorDrive;
-			int new_yawMotorDrive = yawMotorDrive;
-			//****************************
-			// pitch PID
-			//****************************
-			float gyroDesiredPitch = 0;
-			if (config.profiles[0].axisConfig[axisPITCH].mode == 0)
-			{
-				//pitchPIDVal = ComputePID(DT_LOOP_MS, angle[axisPITCH], pitchAngleSet*1000, &pitchErrorSum, &pitchErrorOld, pitchPIDpar.Kp, pitchPIDpar.Ki, pitchPIDpar.Kd, &pitchDelta1, &pitchDelta2);
-				//pitchPIDVal = fComputePID(pid_lap_sec, angle[axisPITCH3] / 1000.0f, pitchAngleSet, &pitchErrorSum, &pitchErrorOld, pitchPIDpar.Kp, pitchPIDpar.Ki, pitchPIDpar.Kd, &pitchDelta1, &pitchDelta2);
-				pitchPIDVal = ComputePID(pid_lap, angle[axisPITCH], pitchAngleSet*1000, &pitchErrorSum, &pitchErrorOld, pitchPIDpar.Kp, pitchPIDpar.Ki, pitchPIDpar.Kd, &pitchDelta1, &pitchDelta2);
-				// motor control
-				new_pitchMotorDrive = pitchPIDVal * config.profiles[0].axisConfig[axisPITCH].motorDirection;
-			}
-			else if (config.profiles[0].axisConfig[axisPITCH].mode == 1)
-			{
-				float dAngle = normalize_yaw( pitchAngleSet - pitchAngleSet_OLD );
-				gyroDesiredPitch =  dAngle / ((float) pid_lap / 1000.0);  // /s
-
-				pitchPIDVal = ComputePID(pid_lap,  (float) gyroADC[axisPITCH] / resolutionDevider, gyroDesiredPitch , &pitchErrorSum, &pitchErrorOld, pitchPIDpar.Kp, pitchPIDpar.Ki, pitchPIDpar.Kd, &pitchDelta1, &pitchDelta2);
-
-				// motor control
-				int drive = pitchPIDVal * pid_lap * config.profiles[0].axisConfig[axisPITCH].motorDirection;
-				new_pitchMotorDrive = pitchMotorDrive + drive;
-				if (drive != 0)
-					pitchAngleSet_OLD = normalize_yaw(pitchAngleSet_OLD + (gyroDesiredPitch * pid_lap / 1000.0) );
-			} else {
-				new_pitchMotorDrive = (int) ((float) config.profiles[0].axisConfig[axisPITCH].stepsMotor * ((float)pitchAngleSet) / 360.0  + config.profiles[0].axisConfig[axisPITCH].offsetMotor);
-			}
-
-			//****************************
-			// roll PID
-			//****************************
-			float gyroDesiredRoll= 0;
-
-			if (config.profiles[0].axisConfig[axisROLL].mode == 0)
-			{
-				//rollPIDVal = ComputePID(DT_LOOP_MS, angle[axisROLL], rollAngleSet*1000, &rollErrorSum, &rollErrorOld, rollPIDpar.Kp, rollPIDpar.Ki, rollPIDpar.Kd, &rollDelta1, &rollDelta2);
-				rollPIDVal = ComputePID(pid_lap, angle[axisROLL], rollAngleSet*1000, &rollErrorSum, &rollErrorOld, rollPIDpar.Kp, rollPIDpar.Ki, rollPIDpar.Kd, &rollDelta1, &rollDelta2);
-
-				// motor control
-				new_rollMotorDrive = rollPIDVal * config.profiles[0].axisConfig[axisROLL].motorDirection;
-			}
-			else if (config.profiles[0].axisConfig[axisROLL].mode == 1)
-			{
-				float dAngle = normalize_yaw( rollAngleSet - rollAngleSet_OLD );
-				gyroDesiredRoll =  dAngle / ((float) pid_lap / 1000.0);  // /s
-
-				rollPIDVal = ComputePID(pid_lap,  (float) gyroADC[axisROLL] / resolutionDevider, gyroDesiredRoll , &rollErrorSum, &rollErrorOld, rollPIDpar.Kp, rollPIDpar.Ki, rollPIDpar.Kd, &rollDelta1, &rollDelta2);
-
-				// motor control
-				int drive = rollPIDVal * pid_lap * config.profiles[0].axisConfig[axisROLL].motorDirection;
-				new_rollMotorDrive = rollMotorDrive + drive;
-				if (drive != 0)
-					rollAngleSet_OLD = normalize_yaw(rollAngleSet_OLD + (gyroDesiredRoll * pid_lap / 1000.0) );
-			} else {
-				new_rollMotorDrive = (int) ((float) config.profiles[0].axisConfig[axisROLL].stepsMotor * ((float)rollAngleSet ) / 360.0 + config.profiles[0].axisConfig[axisROLL].offsetMotor);
-			}
-
-			//****************************
-			// yaw PID
-			//****************************
-			//gestisco il cambio di modo in runtime azzerando lo storico degli errori
-			static int8_t modeYaw_old = 0;
-			if (modeYaw_old != config.profiles[0].axisConfig[axisYAW].mode)
-			{
-				yawErrorOld = 0;
-				yawErrorSum = 0;
-				yawDelta1 = 0;
-				yawDelta2 = 0;
-
-				modeYaw_old = config.profiles[0].axisConfig[axisYAW].mode;
-			}
 
 
-			if (g_bTestYawMotor)
-			{
-				g_fTestYawMotorValue += g_fTestYawMotorSpeed * pid_lap;
-				new_yawMotorDrive = g_fTestYawMotorValue * config.profiles[0].axisConfig[axisYAW].motorDirection;
-			} else if (config.profiles[0].axisConfig[axisYAW].mode == 0)
-			{
-				yawPIDVal = ComputePID(pid_lap, angle[axisYAW], yawAngleSet * 1000 , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
+		int new_pitchMotorDrive = pitchMotorDrive;
+		int new_rollMotorDrive = rollMotorDrive;
+		int new_yawMotorDrive = yawMotorDrive;
+		//****************************
+		// pitch PID
+		//****************************
+		float gyroDesiredPitch = 0;
+		if (config.profiles[0].axisConfig[axisPITCH].mode == 0)
+		{
+			pitchPIDVal = ComputePID(pid_lap_us, angle[axisPITCH], pitchAngleSet*1000, &pitchErrorSum, &pitchErrorOld, pitchPIDpar.Kp, pitchPIDpar.Ki, pitchPIDpar.Kd, &pitchDelta1, &pitchDelta2);
+			//pitchPIDVal = ComputePIDF(pid_lap, angle[axisPITCH], pitchAngleSet*1000, &pitchErrorSum, &pitchErrorOld, pitchPIDpar.Kp, pitchPIDpar.Ki, pitchPIDpar.Kd, config.profiles[0].axisConfig[axisPITCH].stepsLimit,  &pitchDelta1);
+			// motor control
+			new_pitchMotorDrive = pitchPIDVal * config.profiles[0].axisConfig[axisPITCH].motorDirection;
+		}
+		else if (config.profiles[0].axisConfig[axisPITCH].mode == 1)
+		{
+			float dAngle = normalize_yaw( pitchAngleSet - pitchAngleSet_OLD );
+			gyroDesiredPitch =  dAngle / ((float) pid_lap_us / 1000000.0f);  // /s
 
-				int yawMotorDrive_OLD = yawMotorDrive;
-				// motor control
-				new_yawMotorDrive = yawPIDVal * config.profiles[0].axisConfig[axisYAW].motorDirection;
+			pitchPIDVal = ComputePID(pid_lap_us,  (float) gyroADC[axisPITCH] / resolutionDevider, gyroDesiredPitch , &pitchErrorSum, &pitchErrorOld, pitchPIDpar.Kp, pitchPIDpar.Ki, pitchPIDpar.Kd, &pitchDelta1, &pitchDelta2);
 
-				yawDiffDrive = new_yawMotorDrive - yawMotorDrive_OLD;
+			// motor control
+			int drive = pitchPIDVal * (pid_lap_us / 1000) * config.profiles[0].axisConfig[axisPITCH].motorDirection;
+			new_pitchMotorDrive = pitchMotorDrive + drive;
+			if (drive != 0)
+				pitchAngleSet_OLD = normalize_yaw(pitchAngleSet_OLD + (gyroDesiredPitch * pid_lap_us / 1000000.0) );
+		} else {
+			new_pitchMotorDrive = (int) ((float) config.profiles[0].axisConfig[axisPITCH].stepsMotor * ((float)pitchAngleSet) / 360.0  + config.profiles[0].axisConfig[axisPITCH].offsetMotor);
+		}
 
+		//****************************
+		// roll PID
+		//****************************
+		float gyroDesiredRoll= 0;
+		if (config.profiles[0].axisConfig[axisROLL].mode == 0)
+		{
+			rollPIDVal = ComputePID(pid_lap_us, angle[axisROLL], rollAngleSet*1000, &rollErrorSum, &rollErrorOld, rollPIDpar.Kp, rollPIDpar.Ki, rollPIDpar.Kd, &rollDelta1, &rollDelta2);
+			// rollPIDVal = ComputePIDF(pid_lap, angle[axisROLL], rollAngleSet*1000, &rollErrorSum, &rollErrorOld, rollPIDpar.Kp, rollPIDpar.Ki, rollPIDpar.Kd,config.profiles[0].axisConfig[axisROLL].stepsLimit, &rollDelta1);
+			// motor control
+			new_rollMotorDrive = rollPIDVal * config.profiles[0].axisConfig[axisROLL].motorDirection;
+		}
+		else if (config.profiles[0].axisConfig[axisROLL].mode == 1)
+		{
+			float dAngle = normalize_yaw( rollAngleSet - rollAngleSet_OLD );
+			gyroDesiredRoll =  dAngle / ((float) pid_lap_us / 1000000.0);  // /s
 
-//				//test: limito la velocit di attuazione
-//				float spd = (float) yawDiffDrive / pid_lap;
-//				const float spdLimit = 1;  //1 step/ms
-//				if (fabs(spd) > spdLimit)
-//				{
-//					new_yawMotorDrive = yawMotorDrive_OLD + (int)sgn(yawDiffDrive) * (int) (spdLimit * pid_lap);
-//				}
+			rollPIDVal = ComputePID(pid_lap_us,  (float) gyroADC[axisROLL] / resolutionDevider, gyroDesiredRoll , &rollErrorSum, &rollErrorOld, rollPIDpar.Kp, rollPIDpar.Ki, rollPIDpar.Kd, &rollDelta1, &rollDelta2);
 
-				yawAngleSet_OLD = yawAngleSet;
-			}
-			else if (config.profiles[0].axisConfig[axisYAW].mode == 1)
-			{
+			// motor control
+			int drive = rollPIDVal * (pid_lap_us/1000) * config.profiles[0].axisConfig[axisROLL].motorDirection;
+			new_rollMotorDrive = rollMotorDrive + drive;
+			if (drive != 0)
+				rollAngleSet_OLD = normalize_yaw(rollAngleSet_OLD + (gyroDesiredRoll * pid_lap_us / 1000000.0) );
+		} else {
+			new_rollMotorDrive = (int) ((float) config.profiles[0].axisConfig[axisROLL].stepsMotor * ((float)rollAngleSet ) / 360.0 + config.profiles[0].axisConfig[axisROLL].offsetMotor);
+		}
 
-//				float dAngle = normalize_yaw( yawAngleSet - yawAngleSet_OLD ); // estimAngle[axisYAW]; //;
-//				gyroDesiredYaw =  dAngle / ((float) pid_lap / 1000.0);  // /s
-//
-//				yawPIDVal = ComputePID(pid_lap,  (float) gyroADC[axisYAW] / resolutionDevider, gyroDesiredYaw , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
-//
-//				// motor control
-//				int drive = yawPIDVal * pid_lap * config.profiles[0].dirMotorYaw;
-//				new_yawMotorDrive = yawMotorDrive + drive;
-//				if (drive != 0)
-//					yawAngleSet_OLD = normalize_yaw(yawAngleSet_OLD + (gyroDesiredYaw * pid_lap / 1000.0) );
+		//****************************
+		// yaw PID
+		//****************************
+		//gestisco il cambio di modo in runtime azzerando lo storico degli errori
+		static int8_t modeYaw_old = 0;
+		if (modeYaw_old != config.profiles[0].axisConfig[axisYAW].mode)
+		{
+			yawErrorOld = 0;
+			yawErrorSum = 0;
+			yawDelta1 = 0;
+			yawDelta2 = 0;
 
-//				//esperimento di stabilizzazione con controllo della velocit di rotazione (una specie di doppia retroazione)
-//				diffDriveAngleYaw = yawAngleSet - angle[axisYAW] / 1000.0f;
-//				diffDriveAngleYaw = normalize_yaw(diffDriveAngleYaw);
-//
-//				float driveLimit1 = 0.0f; //(float) config.profiles[0].driveLimit1Angle;
-//				float driveLimit2 = (float) config.profiles[0].driveLimit2Angle;
-//				float maxGyro = (float) config.profiles[0].maxGyroDrive;
-//
-//				float newGyro = 0;
-//
-//				if (diffDriveAngleYaw > driveLimit2)
-//					newGyro = maxGyro ;
-//				else if (diffDriveAngleYaw > driveLimit1)
-//					newGyro = maxGyro * (float)(diffDriveAngleYaw - driveLimit1) / (float) (driveLimit2 - driveLimit1);
-//				else if (diffDriveAngleYaw < -driveLimit2)
-//					newGyro = - maxGyro;
-//				else if (diffDriveAngleYaw < -driveLimit1)
-//					newGyro = - maxGyro * (float)(abs(diffDriveAngleYaw) - driveLimit1) / (float) (driveLimit2 - driveLimit1);
-//				else
-//					newGyro = 0;
-//
-//				utilLP_float(&gyroDesiredYaw, newGyro, 0.01);
-
-				gyroDesiredYaw = yawAngleSet / 10;
-
-
-				yawPIDVal = ComputePID(pid_lap, 1000.0f * (float) gyroADC[axisYAW] / resolutionDevider, 1000.0f * gyroDesiredYaw , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
-				// motor control
-				//int drive = yawPIDVal * pid_lap * config.profiles[0].dirMotorYaw;
-				int drive = yawPIDVal * config.profiles[0].axisConfig[axisYAW].motorDirection;
-				new_yawMotorDrive = yawMotorDrive + drive;
-
-
-//				yawPIDVal = ComputePID(pid_lap,  (float) angle[axisYAW], gyroDesiredYaw * pid_lap, &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
-//				// motor control
-//				new_yawMotorDrive = yawPIDVal * config.profiles[0].dirMotorYaw;
-
-			}
-			else if ( (config.profiles[0].axisConfig[axisYAW].mode == 2) ) //|| (config.profiles[0].axisConfig[axisYAW].mode == 3))
-			{
-
-				driveSetYaw = getMotorDriveSet(axisYAW);//(int) ( (yawAngleSet / 360.0f) * (float) config.profiles[0].stepsMotorYaw ) + config.profiles[0].offsetMotorYaw;
-				driveSetYaw = inormalize_val(driveSetYaw, config.profiles[0].axisConfig[axisYAW].stepsMotor);
-
-				int diff_drive = driveSetYaw - yawMotorDrive;
-				diff_drive = inormalize_val(diff_drive, config.profiles[0].axisConfig[axisYAW].stepsMotor);
-
-				diffDriveAngleYaw = 360.0f * (float) diff_drive / (float) config.profiles[0].axisConfig[axisYAW].stepsMotor;
+			modeYaw_old = config.profiles[0].axisConfig[axisYAW].mode;
+		}
 
 
-				int driveLimit1 = ((float) config.profiles[0].axisConfig[axisYAW].driveLimit1Angle / 360.0f) * config.profiles[0].axisConfig[axisYAW].stepsMotor;
-				int driveLimit2 = ((float) config.profiles[0].axisConfig[axisYAW].driveLimit2Angle / 360.0f) * config.profiles[0].axisConfig[axisYAW].stepsMotor;
-				float maxGyro = (float) config.profiles[0].axisConfig[axisYAW].maxGyroDrive;  //in realt sarebbe da legare a rcGain e rcLPF
+		if (config.profiles[0].axisConfig[axisYAW].mode == 0)
+		{
+			yawPIDVal = ComputePID(pid_lap_us, angle[axisYAW], yawAngleSet * 1000 , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
+			//yawPIDVal = ComputePIDF(pid_lap, angle[axisYAW], yawAngleSet * 1000 , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd,config.profiles[0].axisConfig[axisYAW].stepsLimit, &yawDelta1);
+
+			int yawMotorDrive_OLD = yawMotorDrive;
+			// motor control
+			new_yawMotorDrive = yawPIDVal * config.profiles[0].axisConfig[axisYAW].motorDirection;
+
+			yawDiffDrive = new_yawMotorDrive - yawMotorDrive_OLD;
+			yawAngleSet_OLD = yawAngleSet;
+		}
+		else if (config.profiles[0].axisConfig[axisYAW].mode == 1)
+		{
+//			gyroDesiredYaw = yawAngleSet / 10;
+//			yawPIDVal = ComputePID(pid_lap_us, 1000.0f * (float) gyroADC[axisYAW] / resolutionDevider, 1000.0f * gyroDesiredYaw , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
+//			// motor control
+//			int drive = yawPIDVal * config.profiles[0].axisConfig[axisYAW].motorDirection;
+//			new_yawMotorDrive = yawMotorDrive + drive;
+			yawPIDVal = ComputePIDF(pid_lap, angle[axisYAW], yawAngleSet * 1000 , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd,config.profiles[0].axisConfig[axisYAW].stepsLimit, &yawDelta1);
+
+			int yawMotorDrive_OLD = yawMotorDrive;
+			// motor control
+			new_yawMotorDrive = yawPIDVal * config.profiles[0].axisConfig[axisYAW].motorDirection;
+
+			yawDiffDrive = new_yawMotorDrive - yawMotorDrive_OLD;
+			yawAngleSet_OLD = yawAngleSet;
+		}
+		else if ( (config.profiles[0].axisConfig[axisYAW].mode == 2) ) //|| (config.profiles[0].axisConfig[axisYAW].mode == 3))
+		{
+
+			driveSetYaw = getMotorDriveSet(axisYAW);//(int) ( (yawAngleSet / 360.0f) * (float) config.profiles[0].stepsMotorYaw ) + config.profiles[0].offsetMotorYaw;
+			driveSetYaw = inormalize_val(driveSetYaw, config.profiles[0].axisConfig[axisYAW].stepsMotor);
+
+			int diff_drive = driveSetYaw - yawMotorDrive;
+			diff_drive = inormalize_val(diff_drive, config.profiles[0].axisConfig[axisYAW].stepsMotor);
+
+			diffDriveAngleYaw = 360.0f * (float) diff_drive / (float) config.profiles[0].axisConfig[axisYAW].stepsMotor;
+
+
+			int driveLimit1 = ((float) config.profiles[0].axisConfig[axisYAW].driveLimit1Angle / 360.0f) * config.profiles[0].axisConfig[axisYAW].stepsMotor;
+			int driveLimit2 = ((float) config.profiles[0].axisConfig[axisYAW].driveLimit2Angle / 360.0f) * config.profiles[0].axisConfig[axisYAW].stepsMotor;
+			float maxGyro = (float) config.profiles[0].axisConfig[axisYAW].maxGyroDrive;  //in realt sarebbe da legare a rcGain e rcLPF
 
 
 
-				//3. formula lineare con tolleranza intorno allo zero
-				//
-				//    	           maxGyro
-				//    	\    |    /
-				//    	 \   |   /
-				//    	  \--+--/
-				//    	     0 L1 L2
+			//3. formula lineare con tolleranza intorno allo zero
+			//
+			//    	           maxGyro
+			//    	\    |    /
+			//    	 \   |   /
+			//    	  \--+--/
+			//    	     0 L1 L2
 
-				//if (config.profiles[0].axisConfig[axisYAW].mode == 3)
-				//{
-					if (diff_drive > driveLimit2)
-						gyroDesiredYaw = maxGyro ;
-					else if (diff_drive > driveLimit1)
-						gyroDesiredYaw = maxGyro * (float)(diff_drive - driveLimit1) / (float) (driveLimit2 - driveLimit1);
-					else if (diff_drive < -driveLimit2)
-						gyroDesiredYaw = - maxGyro;
-					else if (diff_drive < -driveLimit1)
-						gyroDesiredYaw = - maxGyro * (float)(abs(diff_drive) - driveLimit1) / (float) (driveLimit2 - driveLimit1);
-					else
-						gyroDesiredYaw = 0;
-				//}
+			//if (config.profiles[0].axisConfig[axisYAW].mode == 3)
+			//{
+				if (diff_drive > driveLimit2)
+					gyroDesiredYaw = maxGyro ;
+				else if (diff_drive > driveLimit1)
+					gyroDesiredYaw = maxGyro * (float)(diff_drive - driveLimit1) / (float) (driveLimit2 - driveLimit1);
+				else if (diff_drive < -driveLimit2)
+					gyroDesiredYaw = - maxGyro;
+				else if (diff_drive < -driveLimit1)
+					gyroDesiredYaw = - maxGyro * (float)(abs(diff_drive) - driveLimit1) / (float) (driveLimit2 - driveLimit1);
+				else
+					gyroDesiredYaw = 0;
+			//}
 
 
-				//TODO: TEO: verificare quale moltiplicazione di config.profiles[0].dirMotorYaw *  genera l'inverzione di segno
-				gyroDesiredYaw = config.profiles[0].axisConfig[axisYAW].motorDirection * gyroDesiredYaw;
+			//TODO: TEO: verificare quale moltiplicazione di config.profiles[0].dirMotorYaw *  genera l'inverzione di segno
+			gyroDesiredYaw = config.profiles[0].axisConfig[axisYAW].motorDirection * gyroDesiredYaw;
 
-				yawPIDVal = ComputePID(pid_lap,  (float) gyroADC[axisYAW] / resolutionDevider, gyroDesiredYaw , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
-				// motor control
-				int drive = yawPIDVal * pid_lap * config.profiles[0].axisConfig[axisYAW].motorDirection;
+			yawPIDVal = ComputePID(pid_lap_us,  (float) gyroADC[axisYAW] / resolutionDevider, gyroDesiredYaw , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
+			// motor control
+			int drive = yawPIDVal * (pid_lap_us/1000) * config.profiles[0].axisConfig[axisYAW].motorDirection;
 
 //				//TEO 20130917
 //				//anzich pilotare la velocit angolare provo  settare l'angolo obiettivo come per la stabilize
-//				float angle_to_reach = angle[axisYAW] + gyroDesiredYaw * pid_lap;
-//				yawPIDVal = ComputePID(pid_lap,  angle[axisYAW], angle_to_reach , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
+//				float angle_to_reach = angle[axisYAW] + gyroDesiredYaw * pid_lap_us / 1000;
+//				yawPIDVal = ComputePID(pid_lap_us,  angle[axisYAW], angle_to_reach , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
 //				// motor control
 //				int drive = yawPIDVal * config.profiles[0].dirMotorYaw;
 
 
-				if (config.profiles[0].axisConfig[axisYAW].mode == 3)
+			if (config.profiles[0].axisConfig[axisYAW].mode == 3)
+			{
+				if ((abs(diff_drive) < driveLimit1) && (yawAngleSet == YawPhiSet))
 				{
-					if ((abs(diff_drive) < driveLimit1) && (yawAngleSet == YawPhiSet))
+					if (fabs((float) gyroADC[axisYAW] / resolutionDevider) < maxGyro)
 					{
-						if (fabs((float) gyroADC[axisYAW] / resolutionDevider) < maxGyro)
-						{
-							//ho gi raggiunto l'obiettivo: tengo fermo
-							drive = 0;
-						} else {
-							//applico la stabilizzazione perch sto ruotando troppo veloce (quindi qualcuno sta ruotando bruscamente il supporto)
-						}
+						//ho gi raggiunto l'obiettivo: tengo fermo
+						drive = 0;
+					} else {
+						//applico la stabilizzazione perch sto ruotando troppo veloce (quindi qualcuno sta ruotando bruscamente il supporto)
 					}
 				}
-
-				new_yawMotorDrive = yawMotorDrive + drive;
-				new_yawMotorDrive = inormalize_val(new_yawMotorDrive, config.profiles[0].axisConfig[axisYAW].stepsMotor);
-
-			}
-			else if ( config.profiles[0].axisConfig[axisYAW].mode == 3)
-			{
-				driveSetYaw = getMotorDriveSet(axisYAW);//(int) ( (yawAngleSet / 360.0f) * (float) config.profiles[0].stepsMotorYaw ) + config.profiles[0].offsetMotorYaw;
-				driveSetYaw = inormalize_val(driveSetYaw, config.profiles[0].axisConfig[axisYAW].stepsMotor);
-
-				int diff_drive = driveSetYaw - yawMotorDrive;
-				diff_drive = inormalize_val(diff_drive, config.profiles[0].axisConfig[axisYAW].stepsMotor);
-
-				diffDriveAngleYaw = 360.0f * (float) diff_drive / (float) config.profiles[0].axisConfig[axisYAW].stepsMotor;
-
-				float yaw_target = angle[axisYAW] + diffDriveAngleYaw * 1000;
-
-				yawPIDVal = ComputePID(pid_lap, angle[axisYAW], yaw_target , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
-
-				// motor control
-				new_yawMotorDrive = yawPIDVal * config.profiles[0].axisConfig[axisYAW].motorDirection;
-
-			} else {
-				new_yawMotorDrive = getMotorDriveSet(axisYAW);
 			}
 
-			//aggiorno i valori per il motor interrupt
-			pitchMotorDrive_PREV = pitchMotorDrive;
-			//pitchMotorDrive = new_pitchMotorDrive;
-			pitchMotorDrive = filterMotorDrive(pitchMotorDrive, new_pitchMotorDrive, config.profiles[0].axisConfig[axisPITCH].stepsLimit);
-			deltaDrive[axisPITCH] = pitchMotorDrive - pitchMotorDrive_PREV;
-			pitchMotorDrive_INT_step = deltaDrive[axisPITCH] / LOOPUPDATE_FACTOR;
-			statistic_pitch.append((float) deltaDrive[axisPITCH]);
-			if ((g_driveAlert[axisPITCH] > 0) && (abs(deltaDrive[axisPITCH]) > g_driveAlert[axisPITCH]))
-			{
-				cliSerial->print("DRV!! ");cliSerial->print(deltaDrive[axisPITCH]);
-				cliSerial->print(" P ");cliSerial->print(angle[axisPITCH]); cliSerial->println();
-			}
-
-			rollMotorDrive_PREV = rollMotorDrive;
-			//rollMotorDrive = new_rollMotorDrive;
-			rollMotorDrive = filterMotorDrive(rollMotorDrive, new_rollMotorDrive, config.profiles[0].axisConfig[axisROLL].stepsLimit);
-			deltaDrive[axisROLL] = rollMotorDrive - rollMotorDrive_PREV;
-			rollMotorDrive_INT_step = deltaDrive[axisROLL] / LOOPUPDATE_FACTOR;
-			statistic_roll.append((float) deltaDrive[axisROLL]);
-			if ((g_driveAlert[axisROLL] > 0) && (abs(deltaDrive[axisROLL]) > g_driveAlert[axisROLL]))
-			{
-				cliSerial->print("DRV!! ");cliSerial->print(deltaDrive[axisROLL]);
-				cliSerial->print(" R ");cliSerial->print(angle[axisROLL]); cliSerial->println();
-			}
-
-			yawMotorDrive_PREV = yawMotorDrive;
-			//yawMotorDrive = new_yawMotorDrive;
-			yawMotorDrive = filterMotorDrive(yawMotorDrive, new_yawMotorDrive, config.profiles[0].axisConfig[axisYAW].stepsLimit);
-			deltaDrive[axisYAW] = yawMotorDrive - yawMotorDrive_PREV;
-
-			yawMotorDrive_INT_step = deltaDrive[axisYAW] / LOOPUPDATE_FACTOR;
-			statistic_yaw.append((float) deltaDrive[axisYAW]);
-			if ((g_driveAlert[axisYAW] > 0) && (abs(deltaDrive[axisYAW]) > g_driveAlert[axisYAW]))
-			{
-				cliSerial->print("DRV!! ");cliSerial->print(deltaDrive[axisYAW]);
-				cliSerial->print(" Y ");cliSerial->print(angle[axisYAW]); cliSerial->println();
-			}
-			motor_update_values = true;
+			new_yawMotorDrive = yawMotorDrive + drive;
+			new_yawMotorDrive = inormalize_val(new_yawMotorDrive, config.profiles[0].axisConfig[axisYAW].stepsMotor);
 
 		}
+		else if ( config.profiles[0].axisConfig[axisYAW].mode == 3)
+		{
+			driveSetYaw = getMotorDriveSet(axisYAW);//(int) ( (yawAngleSet / 360.0f) * (float) config.profiles[0].stepsMotorYaw ) + config.profiles[0].offsetMotorYaw;
+			driveSetYaw = inormalize_val(driveSetYaw, config.profiles[0].axisConfig[axisYAW].stepsMotor);
 
+			int diff_drive = driveSetYaw - yawMotorDrive;
+			diff_drive = inormalize_val(diff_drive, config.profiles[0].axisConfig[axisYAW].stepsMotor);
 
+			diffDriveAngleYaw = 360.0f * (float) diff_drive / (float) config.profiles[0].axisConfig[axisYAW].stepsMotor;
 
+			float yaw_target = angle[axisYAW] + diffDriveAngleYaw * 1000;
+
+			yawPIDVal = ComputePID(pid_lap_us, angle[axisYAW], yaw_target , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
+
+			// motor control
+			new_yawMotorDrive = yawPIDVal * config.profiles[0].axisConfig[axisYAW].motorDirection;
+
+		} else {
+			//new_yawMotorDrive = getMotorDriveSet(axisYAW);
+			new_yawMotorDrive = yawMotorDrive + config.profiles[0].axisConfig[axisYAW].motorDirection * config.profiles[0].axisConfig[axisYAW].Kp / 1000;
+		}
+
+		//aggiorno i valori per il motor interrupt
+		pitchMotorDrive_PREV = pitchMotorDrive;
+		//pitchMotorDrive = new_pitchMotorDrive;
+		//pitchMotorDrive = filterMotorDrive(pitchMotorDrive, new_pitchMotorDrive, config.profiles[0].axisConfig[axisPITCH].stepsLimit);
+		pitchMotorDrive = (int32_t) driveLPF[axisPITCH]->apply((float) new_pitchMotorDrive);
+		deltaDrive[axisPITCH] = pitchMotorDrive - pitchMotorDrive_PREV;
+		pitchMotorDrive_INT_step = deltaDrive[axisPITCH] / LOOPUPDATE_FACTOR;
+		statistic_pitch.append((float) deltaDrive[axisPITCH]);
+//		if ((g_driveAlert[axisPITCH] > 0) && (abs(deltaDrive[axisPITCH]) > g_driveAlert[axisPITCH]))
+//		{
+//			cliSerial->print("DRV!! ");cliSerial->print(deltaDrive[axisPITCH]);
+//			cliSerial->print(" P ");cliSerial->print(angle[axisPITCH]); cliSerial->println();
+//		}
+
+		rollMotorDrive_PREV = rollMotorDrive;
+		//rollMotorDrive = new_rollMotorDrive;
+		//rollMotorDrive = filterMotorDrive(rollMotorDrive, new_rollMotorDrive, config.profiles[0].axisConfig[axisROLL].stepsLimit);
+		rollMotorDrive = (int32_t) driveLPF[axisROLL]->apply((float) new_rollMotorDrive);
+		deltaDrive[axisROLL] = rollMotorDrive - rollMotorDrive_PREV;
+		rollMotorDrive_INT_step = deltaDrive[axisROLL] / LOOPUPDATE_FACTOR;
+		statistic_roll.append((float) deltaDrive[axisROLL]);
+//		if ((g_driveAlert[axisROLL] > 0) && (abs(deltaDrive[axisROLL]) > g_driveAlert[axisROLL]))
+//		{
+//			cliSerial->print("DRV!! ");cliSerial->print(deltaDrive[axisROLL]);
+//			cliSerial->print(" R ");cliSerial->print(angle[axisROLL]); cliSerial->println();
+//		}
+
+		yawMotorDrive_PREV = yawMotorDrive;
+		//yawMotorDrive = new_yawMotorDrive;
+		//yawMotorDrive = filterMotorDrive(yawMotorDrive, new_yawMotorDrive, config.profiles[0].axisConfig[axisYAW].stepsLimit);
+		yawMotorDrive = (int32_t) driveLPF[axisYAW]->apply((float) new_yawMotorDrive);
+		deltaDrive[axisYAW] = yawMotorDrive - yawMotorDrive_PREV;
+
+		yawMotorDrive_INT_step = deltaDrive[axisYAW] / LOOPUPDATE_FACTOR;
+		statistic_yaw.append((float) deltaDrive[axisYAW]);
+//		if ((g_driveAlert[axisYAW] > 0) && (abs(deltaDrive[axisYAW]) > g_driveAlert[axisYAW]))
+//		{
+//			cliSerial->print("DRV!! ");cliSerial->print(deltaDrive[axisYAW]);
+//			cliSerial->print(" Y ");cliSerial->print(angle[axisYAW]); cliSerial->println();
+//		}
+		motor_update_values = true;
+
+		//misuro durata funzione
+		main_loop_duration[5].append( measure_micro_delay(unowlap, micros()) );
+		unowlap = micros();
+
+	}
 
 
 #ifndef BRUGI_USE_INTERRUPT_TIMER
-		//attuazione (spostata qui sotto in modo che sia più immediata e allineata con i LAP calcolati qui sopra)
-		motorInterrupt();
-#endif
+	//attuazione (spostata qui sotto in modo che sia più immediata e allineata con i LAP calcolati qui sopra)
+	motorInterrupt();
 
-		//****************************
-		// debug and telemetry outputs
-		//****************************
-		//uint32_t now = millis();
-
-		if ((now - output_time) > (1000 / POUT_FREQ))
+	//stampo debug per analisi funzione di trasferimento
+	if (g_bTest[1])
+	{
+		int a = -1;
+		int gyro = gyroADC2[axisYAW];
+		int gyroL = (int) gyroADC2_lfp[axisYAW];
+		int drv = yawMotorDrive;
+		if (g_driveAlert[axisROLL] > 0)
 		{
-			output_time = now;
-			bOutputDebug = true;
-
-			if (g_bTest[7])
-			{
-				cliSerial->print(F("DRV "));
-				cliSerial->print(deltaDrive[axisROLL]);cliSerial->print(F(" "));
-				cliSerial->print(deltaDrive[axisPITCH]);cliSerial->print(F(" "));
-				cliSerial->print(deltaDrive[axisYAW]);cliSerial->print(F(" "));
-				cliSerial->println();
-			}
-
-			//debug stabilizzazione yaw
-			if (g_bSendYawOutput)
-			{
-
-				cliSerial->print(F("YAW "));
-				cliSerial->print(pid_lap);cliSerial->print(F(" "));
-				cliSerial->print(YawPhiSet);cliSerial->print(F(" "));
-				cliSerial->print(yawAngleSet);cliSerial->print(F(" "));
-				cliSerial->print(yawAngleSet_OLD);cliSerial->print(F(" "));
-				cliSerial->print(diffDriveAngleYaw);cliSerial->print(F(" "));
-				cliSerial->print(gyroADC[axisYAW] / resolutionDevider);cliSerial->print(F(" "));
-				cliSerial->print(gyroDesiredYaw);cliSerial->print(F(" "));
-				cliSerial->print(driveSetYaw);cliSerial->print(F(" "));
-				cliSerial->print(yawMotorDrive);cliSerial->print(F(" "));
-				cliSerial->print(yawDiffDrive);cliSerial->print(F(" "));
-				cliSerial->println();
-				/*
-				if (config.profiles[0].axisConfig[axisYAW].mode == 1)
-				{
-					cliSerial->print(F("YAW "));
-					cliSerial->print(pid_lap);cliSerial->print(F(" "));
-					cliSerial->print(yawAngleSet);cliSerial->print(F(" "));
-					cliSerial->print(yawAngleSet_OLD);cliSerial->print(F(" "));
-					cliSerial->print(gyroADC[axisYAW] / resolutionDevider);cliSerial->print(F(" "));
-					cliSerial->print(gyroDesiredYaw);cliSerial->print(F(" "));
-					cliSerial->print(yawMotorDrive);cliSerial->print(F(" "));
-					cliSerial->println();
-				} else if (config.profiles[0].axisConfig[axisYAW].mode > 1) {
-					cliSerial->print(F("YAW "));
-					cliSerial->print(pid_lap);cliSerial->print(F("\tAng "));
-					cliSerial->print(yawAngleSet);cliSerial->print(F("\tPhi "));
-					cliSerial->print(YawPhiSet);cliSerial->print(F("\tdiff "));
-					cliSerial->print(diffDriveAngleYaw);cliSerial->print(F("\tgyro "));
-					cliSerial->print(gyroADC[axisYAW] / resolutionDevider);cliSerial->print(F("\tdes "));
-					cliSerial->print(gyroDesiredYaw);cliSerial->print(F("\tdriveSet "));
-					cliSerial->print(driveSetYaw);cliSerial->print(F("\tmotor "));
-					cliSerial->print(yawMotorDrive);cliSerial->print(F(" "));
-					cliSerial->println();
-
-
-				}*/
-			}
-
-#ifdef DEBUG_IMU_DELAY
-			uint32_t dbg_gyros = lap_gyros;
-			if (cnt_gyros > 0)
-				dbg_gyros = dbg_gyros / cnt_gyros;
-
-			cnt_gyros = 0;
-			lap_gyros = 0;
-#endif
-			// 600 us
-			if(g_accOutput){ cliSerial->print(angle[axisPITCH]);
-										cliSerial->print(F(" ACC "));cliSerial->print(angle[axisROLL]);
-										cliSerial->print(F(" "));cliSerial->print(angle[axisYAW]);
-#ifdef DEBUG_IMU_DELAY
-										cliSerial->print(F(" "));cliSerial->print(pid_lap);
-										cliSerial->print(F(" "));cliSerial->print(dbg_gyros);
-#endif
-										cliSerial->print(F(" "));cliSerial->print(interrupt_mean_lap.mean());
-										cliSerial->print(F(" "));cliSerial->print(interrupt_mean_duration.mean());
-										cliSerial->print(F(" "));cliSerial->print(loop_mean_lap.mean());
-										cliSerial->print(F(" "));cliSerial->print(loop_mean_lap.vmin());
-										cliSerial->print(F(" "));cliSerial->print(loop_mean_lap.vmax());
-										cliSerial->println();
-			}
-
-			if (g_bSendDebugOutput){
-				cliSerial->print(F("DBG "));
-				cliSerial->print(millis());cliSerial->print(F(" "));
-				cliSerial->print(angle[axisROLL]);cliSerial->print(F(" "));
-				cliSerial->print(angle[axisPITCH]);cliSerial->print(F(" "));
-				cliSerial->print(angle[axisYAW]);cliSerial->print(F(" "));
-
-				Vector3f dummy;
-				dummy.x =0;
-				dummy.y =0;
-				dummy.z =0;
-
-#if ((defined ( IMU_AP )) || ( defined (IMU_MIXED)))
-				print_vector(ins.get_accel());
-				print_vector(ins.get_gyro());
-#ifdef GIMBAL_ENABLE_COMPASS
-				cliSerial->print(compass.mag_x);cliSerial->print(F(" "));
-				cliSerial->print(compass.mag_y);cliSerial->print(F(" "));
-				cliSerial->print(compass.mag_z);cliSerial->print(F(" "));
-
-#else
-				print_vector(dummy);
-#endif
-#else
-
-				Vector3f a;
-				a.x = accADC[axisROLL];
-				a.y = accADC[axisPITCH];
-				a.z = accADC[axisYAW];
-				print_vector(a);
-
-				Vector3f g;
-				g.x = gyroADC[axisROLL];
-				g.y = gyroADC[axisPITCH];
-				g.z = gyroADC[axisYAW];
-				print_vector(g);
-#ifdef GIMBAL_ENABLE_COMPASS
-#ifdef COMPASS_AP
-				cliSerial->print(compass.mag_x);cliSerial->print(F(" "));
-				cliSerial->print(compass.mag_y);cliSerial->print(F(" "));
-				cliSerial->print(compass.mag_z);cliSerial->print(F(" "));
-#else
-				Vector3i m = compass.get_raw();
-				print_vector(m);
-#endif
-#else
-				print_vector(dummy);
-#endif
-
-#endif
-				cliSerial->println();
-			}
-
-			if (g_bSendRCOutput)
-			{
-				cliSerial->print("RC  "); cliSerial->print(now); cliSerial->print("\t");
-				for (int i = 0; i < RC_DATA_SIZE; i++)
-				{
-					cliSerial->print(rcData[i].rx); cliSerial->print("\t");
-				}
-
-				cliSerial->print(rollAngleSet); cliSerial->print("\t");
-				cliSerial->print(pitchAngleSet); cliSerial->print("\t");
-				cliSerial->print(yawAngleSet); cliSerial->print("\t");
-
-				cliSerial->print(RollPhiSet); cliSerial->print("\t");
-				cliSerial->print(PitchPhiSet); cliSerial->print("\t");
-				cliSerial->print(YawPhiSet); cliSerial->print("\t");
-
-
-
-				cliSerial->println();
-			}
-
-			if (g_bSendJoyOutput)
-			{
-				cliSerial->print("JOY "); cliSerial->print(now); cliSerial->print("\t");
-				for (int i = 0; i < MANUAL_INPUT_COUNT; i++)
-				{
-					uint16_t val = 0;
-					getManCmdAxisValue((uint8) i, &val);
-					cliSerial->print(val); cliSerial->print("\t");
-				}
-				cliSerial->println();
-			}
+			a = axisROLL;
+			gyro = gyroADC[a];
+			gyroL = 0;
+			drv = rollMotorDrive;
+		}
+		else if (g_driveAlert[axisPITCH] > 0)
+		{
+			a = axisPITCH;
+			gyro = gyroADC[a];
+			gyroL = 0;
+			drv = pitchMotorDrive;
+		}
+		else if (g_driveAlert[axisYAW] > 0)
+		{
+			a = axisYAW;
+			gyro = gyroADC[a];
+			gyroL = 0;
+			drv = yawMotorDrive;
 		}
 
-		//****************************
-		// slow rate actions
-		//****************************
-		if (bEnterPID)
+		cliSerial->print(F("# "));
+		cliSerial->print(gyro);cliSerial->print(F(" "));
+		cliSerial->print(drv);cliSerial->print(F(" "));
+		cliSerial->print(gyroL);
+		cliSerial->println();
+	}
+
+#endif
+
+	main_loop_duration[6].append( measure_micro_delay(unowlap, micros()) );
+	unowlap = micros();
+
+	//****************************
+	// debug and telemetry outputs
+	//****************************
+	if (bOutputDebug)
+	{
+		bLedOn = !bLedOn;
+		if (bLedOn)
+			LEDGREPIN_ON
+		else
+			LEDGREPIN_OFF
+
+
+		if (g_bTest[7])
+		{
+			cliSerial->print(F("DRV "));
+			cliSerial->print(deltaDrive[axisROLL]);cliSerial->print(F(" "));
+			cliSerial->print(deltaDrive[axisPITCH]);cliSerial->print(F(" "));
+			cliSerial->print(deltaDrive[axisYAW]);cliSerial->print(F(" "));
+			//cliSerial->print(pwm_val[axisROLL]);cliSerial->print(F(" "));
+			//cliSerial->print(pwm_val[axisPITCH]);cliSerial->print(F(" "));
+			//cliSerial->print(pwm_val[axisYAW]);cliSerial->print(F(" "));
+			cliSerial->println();
+		}
+
+		//debug stabilizzazione yaw
+		if (g_bSendYawOutput)
 		{
 
-			measure_loop(!bOutputDebug);  //evito di misurare i loop che scrivono su seriale...
+			cliSerial->print(F("YAW "));
+			cliSerial->print(pid_lap);cliSerial->print(F(" "));
+			cliSerial->print(YawPhiSet);cliSerial->print(F(" "));
+			cliSerial->print(yawAngleSet);cliSerial->print(F(" "));
+			cliSerial->print(yawAngleSet_OLD);cliSerial->print(F(" "));
+			cliSerial->print(diffDriveAngleYaw);cliSerial->print(F(" "));
+			cliSerial->print(gyroADC[axisYAW] / resolutionDevider);cliSerial->print(F(" "));
+			cliSerial->print(gyroDesiredYaw);cliSerial->print(F(" "));
+			cliSerial->print(driveSetYaw);cliSerial->print(F(" "));
+			cliSerial->print(yawMotorDrive);cliSerial->print(F(" "));
+			cliSerial->print(yawDiffDrive);cliSerial->print(F(" "));
 
-			bool tmp = false;
-			switch (count) {
-				case 1:
-					readACC(axisROLL); break;
-				case 2:
-					readACC(axisPITCH); break;
-				case 3:
-					readACC(axisYAW); break;
-				case 4:
-					updateACC(); break;
-				case 5:
+			cliSerial->print(getMotorCurrentRaw(axisYAW));cliSerial->print(F(" "));
+			float I = 1000.0f * getMotorCurrent(axisYAW);
+			cliSerial->print(I);cliSerial->print(F(" "));
+
+			cliSerial->println();
+
+		}
+		// 600 us
+		if(g_accOutput){ cliSerial->print(angle[axisPITCH]);
+									cliSerial->print(F(" ACC "));cliSerial->print(angle[axisROLL]);
+									cliSerial->print(F(" "));cliSerial->print(angle[axisYAW]);
+									cliSerial->print(F(" "));cliSerial->print(interrupt_mean_lap.mean());
+									cliSerial->print(F(" "));cliSerial->print(interrupt_mean_duration.mean());
+									cliSerial->print(F(" "));cliSerial->print(loop_mean_lap.mean());
+
+									//cliSerial->print(F(" "));cliSerial->print(imu_mean_duration.mean());
+									//cliSerial->print(F(" "));cliSerial->print(rc_mean_duration.mean());
+									//cliSerial->print(F(" "));cliSerial->print(pid_mean_duration.mean());   //loop_mean_lap.vmax());
+
+									for (int i = 0; i < 19; i++) {
+										cliSerial->print(F(" ["));
+										cliSerial->print(i);
+										cliSerial->print(F("]"));
+										cliSerial->print(main_loop_duration[i].mean());
+									}
+
+									cliSerial->println();
+		}
+
+		if (g_bSendDebugOutput){
+			cliSerial->print(F("DBG "));
+			cliSerial->print(millis());cliSerial->print(F(" "));
+			cliSerial->print(angle[axisROLL]);cliSerial->print(F(" "));
+			cliSerial->print(angle[axisPITCH]);cliSerial->print(F(" "));
+			cliSerial->print(angle[axisYAW]);cliSerial->print(F(" "));
+
+			Vector3f dummy;
+			dummy.x =0;
+			dummy.y =0;
+			dummy.z =0;
+
+#if ((defined ( IMU_AP )) || ( defined (IMU_MIXED)))
+			print_vector(ins.get_accel());
+			print_vector(ins.get_gyro());
 #ifdef GIMBAL_ENABLE_COMPASS
-					readMAG();
+			cliSerial->print(compass.mag_x);cliSerial->print(F(" "));
+			cliSerial->print(compass.mag_y);cliSerial->print(F(" "));
+			cliSerial->print(compass.mag_z);cliSerial->print(F(" "));
+
+#else
+			print_vector(dummy);
 #endif
-					break;
-				case 6:
-					// gimbal state transitions
-					switch (gimState)
-					{
-						case GIM_IDLE :
-							// wait 2 sec to settle ACC, before PID controlerbecomes active
-							if (now - stateStart >= IDLE_TIME_SEC)
-							{
+#else
+
+			Vector3f a;
+			a.x = accADC[axisROLL];
+			a.y = accADC[axisPITCH];
+			a.z = accADC[axisYAW];
+			print_vector(a);
+
+			Vector3f g;
+			g.x = gyroADC[axisROLL];
+			g.y = gyroADC[axisPITCH];
+			g.z = gyroADC[axisYAW];
+			//if (mpu_yaw_present)
+			//	g.z = gyroADC2[axisYAW];
+			print_vector(g);
+#ifdef GIMBAL_ENABLE_COMPASS
+#ifdef COMPASS_AP
+			cliSerial->print(compass.mag_x);cliSerial->print(F(" "));
+			cliSerial->print(compass.mag_y);cliSerial->print(F(" "));
+			cliSerial->print(compass.mag_z);cliSerial->print(F(" "));
+#else
+			Vector3i m = compass.get_raw();
+			print_vector(m);
+#endif
+#else
+			Vector3f g2;
+			g2.x = 0; //gyroADC2_lfp[axisROLL];
+			g2.y = gyroADC2[axisYAW]; //gyroADC2_lfp[axisPITCH];
+			g2.z = gyroADC2_lfp[axisYAW];
+			print_vector(g2);
+
+			//print_vector(dummy);
+#endif
+
+#endif
+			cliSerial->println();
+		}
+
+		if (g_bSendRCOutput)
+		{
+			cliSerial->print("RC  "); cliSerial->print(now); cliSerial->print("\t");
+			for (int i = 0; i < RC_DATA_SIZE; i++)
+			{
+				cliSerial->print(rcData[i].rx); cliSerial->print("\t");
+			}
+
+			cliSerial->print(rollAngleSet); cliSerial->print("\t");
+			cliSerial->print(pitchAngleSet); cliSerial->print("\t");
+			cliSerial->print(yawAngleSet); cliSerial->print("\t");
+
+			cliSerial->print(RollPhiSet); cliSerial->print("\t");
+			cliSerial->print(PitchPhiSet); cliSerial->print("\t");
+			cliSerial->print(YawPhiSet); cliSerial->print("\t");
+
+
+
+			cliSerial->println();
+		}
+
+		if (g_bSendJoyOutput)
+		{
+			cliSerial->print("JOY "); cliSerial->print(now); cliSerial->print("\t");
+			for (int i = 0; i < MANUAL_INPUT_COUNT; i++)
+			{
+				uint16_t val = 0;
+				getManCmdAxisValue((uint8) i, &val);
+				cliSerial->print(val); cliSerial->print("\t");
+			}
+			cliSerial->println();
+		}
+	}
+
+	main_loop_duration[7].append( measure_micro_delay(unowlap, micros()) );
+	unowlap = micros();
+
+	//****************************
+	// slow rate actions
+	//****************************
+	if (bEnterPID)
+	{
+
+		bool tmp = false;
+		switch (count) {
+			case 1:
+				readACC(axisROLL);
+				main_loop_duration[8].append( measure_micro_delay(unowlap, micros()) );
+				unowlap = micros();
+				break;
+			case 2:
+				readACC(axisPITCH);
+				main_loop_duration[9].append( measure_micro_delay(unowlap, micros()) );
+				unowlap = micros();
+				break;
+			case 3:
+				readACC(axisYAW);
+				main_loop_duration[10].append( measure_micro_delay(unowlap, micros()) );
+				unowlap = micros();
+				break;
+			case 4:
+				updateACC();
+				main_loop_duration[11].append( measure_micro_delay(unowlap, micros()) );
+				unowlap = micros();
+				break;
+			case 5:
+#ifdef GIMBAL_ENABLE_COMPASS
+				readMAG();
+#endif
+				break;
+			case 6:
+				// gimbal state transitions
+				switch (gimState)
+				{
+					case GIM_IDLE :
+						enableMotorUpdates = false;
+						LEDGREPIN_OFF
+						setACCFastMode(true);
+						// wait 2 sec to settle ACC, before PID controlerbecomes active
+						if (now - stateStart >= IDLE_TIME_SEC)
+						{
 							gimState = GIM_UNLOCKED;
 							stateStart = now;
-							}
-							break;
-						case GIM_UNLOCKED :
-							// allow PID controller to settle on ACC position
-							if (now - stateStart >= LOCK_TIME_SEC)
-							{
+						}
+						break;
+					case GIM_UNLOCKED :
+						enableMotorUpdates = true;
+						LEDGREPIN_ON
+						setACCFastMode(true);
+						// allow PID controller to settle on ACC position
+						if (now - stateStart >= LOCK_TIME_SEC)
+						{
 							gimState = GIM_LOCKED;
 							stateStart = now;
-							}
-							break;
-						case GIM_LOCKED :
-							// normal operation
-							break;
-					}
-						// gimbal state actions
-					switch (gimState) {
-						case GIM_IDLE :
-							enableMotorUpdates = false;
-							LEDGREPIN_OFF
-							setACCFastMode(true);
-							break;
-						case GIM_UNLOCKED :
-							enableMotorUpdates = true;
-							LEDGREPIN_ON
-							setACCFastMode(true);
-							break;
-						case GIM_LOCKED :
+
 							enableMotorUpdates = true;
 							LEDGREPIN_ON
 							setACCFastMode(false);
-							break;
-					}
+						}
+						break;
+					case GIM_LOCKED :
+						// normal operation
+						break;
+					case GIM_ERROR:
+						enableMotorUpdates = false;
+						LEDGREPIN_OFF
+						break;
+				}
+				main_loop_duration[12].append( measure_micro_delay(unowlap, micros()) );
+				unowlap = micros();
 				break;
 
 #ifdef GIMBAL_ENABLE_RC
@@ -1395,264 +1374,162 @@ void loop()
 				}
 				PitchResetting = tmp;
 
+
+				tmp = false;
+				if (rcData[RC_DATA_MODE_PITCH].valid) {
+					if (rcData[RC_DATA_MODE_PITCH].setpoint > 0.5f)
+					{
+						tmp = true;
+					}
+				}
+				PitchLocked = tmp;
+
 				if (config.profiles[0].rcConfig[axisPITCH].minOutput < config.profiles[0].rcConfig[axisPITCH].maxOutput) {
 					PitchPhiSet = constrain(PitchPhiSet, config.profiles[0].rcConfig[axisPITCH].minOutput, config.profiles[0].rcConfig[axisPITCH].maxOutput);
 				} else {
 					PitchPhiSet = constrain(PitchPhiSet, config.profiles[0].rcConfig[axisPITCH].maxOutput, config.profiles[0].rcConfig[axisPITCH].minOutput);
 				}
-				break;
-			case 8:
-				// RC roll function
-				if (rcData[RC_DATA_ROLL].valid){
-					if(config.profiles[0].rcConfig[axisROLL].absolute){
-						RollPhiSet = rcData[RC_DATA_ROLL].setpoint;
-					} else {
-						if(fabs(rcData[RC_DATA_ROLL].rcSpeed)>0.01) {
-							RollPhiSet += rcData[RC_DATA_ROLL].rcSpeed * 0.01;
-						}
-					}
-				} else {
-					RollPhiSet = 0;
-				}
 
-				//verifico se  stato richiesto il reset
-				tmp = false;
-				if (rcData[RC_DATA_RESET_ROLL].valid) {
-					//il reset mi interessa solo se sto pilotando in relativo
-					if(!config.profiles[0].rcConfig[axisROLL].absolute) {
-						//if (rcData[RC_DATA_RESET_ROLL].rcSpeed > 0)
-						if (rcData[RC_DATA_RESET_ROLL].setpoint > 0.5f)
-						{
-							//RollPhiSet = 0;
-							tmp = true;
-						}
+				main_loop_duration[13].append( measure_micro_delay(unowlap, micros()) );
+				unowlap = micros();
+			break;
+		case 8:
+			// RC roll function
+			if (rcData[RC_DATA_ROLL].valid){
+				if(config.profiles[0].rcConfig[axisROLL].absolute){
+					RollPhiSet = rcData[RC_DATA_ROLL].setpoint;
+				} else {
+					if(fabs(rcData[RC_DATA_ROLL].rcSpeed)>0.01) {
+						RollPhiSet += rcData[RC_DATA_ROLL].rcSpeed * 0.01;
 					}
 				}
-				RollResetting = tmp;
-
-				if (config.profiles[0].rcConfig[axisROLL].minOutput < config.profiles[0].rcConfig[axisROLL].maxOutput) {
-					RollPhiSet = constrain(RollPhiSet, config.profiles[0].rcConfig[axisROLL].minOutput, config.profiles[0].rcConfig[axisROLL].maxOutput);
-				} else {
-					RollPhiSet = constrain(RollPhiSet, config.profiles[0].rcConfig[axisROLL].maxOutput, config.profiles[0].rcConfig[axisROLL].minOutput);
-				}
-				break;
-			case 9:
-				// RC yaw function
-				if (rcData[RC_DATA_YAW].valid){
-					if(config.profiles[0].rcConfig[axisYAW].absolute){
-						YawPhiSet = rcData[RC_DATA_YAW].setpoint;
-					} else {
-						if(fabs(rcData[RC_DATA_YAW].rcSpeed)>0.01) {
-							YawPhiSet += rcData[RC_DATA_YAW].rcSpeed * 0.01;
-						}
-					}
-				} else {
-					YawPhiSet = 0;
-				}
-
-				//verifico se  stato richiesto il reset
-				tmp = false;
-				if (rcData[RC_DATA_RESET_YAW].valid) {
-					//il reset mi interessa solo se sto pilotando in relativo
-					if(!config.profiles[0].rcConfig[axisYAW].absolute) {
-						//if (rcData[RC_DATA_RESET_YAW].rcSpeed > 0)
-						if (rcData[RC_DATA_RESET_YAW].setpoint > 0.5f)
-						{
-							//YawPhiSet = 0;
-							tmp = true;
-						}
-					}
-				}
-				YawResetting = tmp;
-
-				if ((config.profiles[0].rcConfig[axisYAW].minOutput == config.profiles[0].rcConfig[axisYAW].maxOutput) && (config.profiles[0].rcConfig[axisYAW].maxOutput == 0)) {
-					//normalizzare il phiset genera dei casini micidiali quando si salta da -180 a 180 e viceversa
-					//quindi lo evito
-					//YawPhiSet = normalize_yaw(YawPhiSet);
-				} else if (config.profiles[0].rcConfig[axisYAW].minOutput < config.profiles[0].rcConfig[axisYAW].maxOutput) {
-					YawPhiSet = constrain(YawPhiSet, config.profiles[0].rcConfig[axisYAW].minOutput, config.profiles[0].rcConfig[axisYAW].maxOutput);
-				} else {
-					YawPhiSet = constrain(YawPhiSet, config.profiles[0].rcConfig[axisYAW].maxOutput, config.profiles[0].rcConfig[axisYAW].minOutput);
-				}
-				break;
-#endif
-			case 10:
-#ifdef STACKHEAPCHECK_ENABLE
-				stackHeapEval(false);
-#endif
-				count=0;
-				break;
-			default:
-				break;
-		}
-		count++;
-       
-		//****************************
-		// check RC channel timeouts
-		//****************************
-#ifdef GIMBAL_ENABLE_RC
-		checkRcTimeouts();
-#endif
-		//****************************
-		// Evaluate Serial inputs
-		//****************************
-		//verifico se devo cambiare seriale da UART a USB
-#ifdef GIMBAL_ENABLE_USB
-		if (SerialUSB.isConnected())
-			cliSerial = (FastSerial*)&SerialUSB;
-		else
-			cliSerial = &SerialDBG;
-		sCmd.setSerialPort(cliSerial);
-#endif
-		sCmd.readSerial();
-
-		}
-#ifdef BRUGI_USE_INTERRUPT_TIMER
-	}
-#endif
-}
-
-
-
-void loop_test()
-{
-
-
-	measure_loop();
-
-	static char pOutCnt = 0;
-	static uint32_t output_time = 0;
-
-	//static int stateCount = 0;
-
-#ifndef BRUGI_USE_INTERRUPT_TIMER
-	motorInterrupt();
-#endif
-	uint32_t unow = micros();
-	static uint32_t u_last_motor_update = 0;
-
-	float pid_lap = ((float) measure_micro_delay( u_last_motor_update, unow) / 1000.0f);
-
-
-	//if ( pid_lap >= DT_LOOP_MS)
-	{
-		u_last_motor_update = unow;
-
-		motorUpdate = false;
-
-		//if (g_bTest[0])
-		readGyros();
-		if (config.profiles[0].enableGyro) updateGyroAttitude();
-		if (config.profiles[0].enableACC) updateACCAttitude();
-		//if (g_bTest[1])
-		getAttiduteAngles();
-
-//		if (g_bTest[2])
-//		{
-//			//prova azionamento motori
-//			rollMotorDrive++;
-//			if (rollMotorDrive > N_SIN/2)
-//				rollMotorDrive = 0;
-//			pitchMotorDrive++;
-//			if (pitchMotorDrive > N_SIN/2)
-//				pitchMotorDrive = 0;
-//			yawMotorDrive++;
-//			if (yawMotorDrive > N_SIN/2)
-//				yawMotorDrive = 0;
-//		}
-
-		//****************************
-		// slow rate actions
-		//****************************
-		uint32_t now = millis();
-
-		if ((now - output_time) > (1000 / POUT_FREQ))
-		{
-			output_time = now;
-
-			// 600 us
-			if(g_accOutput){
-				cliSerial->print(angle[axisPITCH]);
-				cliSerial->print(F(" ACC "));cliSerial->print(angle[axisROLL]);
-				cliSerial->print(F(" "));cliSerial->print(angle[axisYAW]);
-
-				cliSerial->print(F(" "));cliSerial->print(interrupt_mean_lap.mean());
-				cliSerial->print(F(" "));cliSerial->print(interrupt_mean_duration.mean());
-				cliSerial->print(F(" "));cliSerial->print(loop_mean_lap.mean());
-				cliSerial->println();
+			} else {
+				RollPhiSet = 0;
 			}
-		}
 
+			//verifico se  stato richiesto il reset
+			tmp = false;
+			if (rcData[RC_DATA_RESET_ROLL].valid) {
+				//il reset mi interessa solo se sto pilotando in relativo
+				if(!config.profiles[0].rcConfig[axisROLL].absolute) {
+					//if (rcData[RC_DATA_RESET_ROLL].rcSpeed > 0)
+					if (rcData[RC_DATA_RESET_ROLL].setpoint > 0.5f)
+					{
+						//RollPhiSet = 0;
+						tmp = true;
+					}
+				}
+			}
+			RollResetting = tmp;
 
-		switch (count) {
-		case 1:
-			//if (g_bTest[3])
-				readACC(axisROLL);
-			break;
-		case 2:
-			//if (g_bTest[3])
-				readACC(axisPITCH);
-			break;
-		case 3:
-			//if (g_bTest[3])
-				readACC(axisYAW);
-			break;
-		case 4:
-			//if (g_bTest[4])
-				updateACC();
-			break;
-		case 5:
-			break;
-			case 6:
-				// gimbal state transitions
-				switch (gimState)
+			tmp = false;
+			if (rcData[RC_DATA_MODE_ROLL].valid) {
+				if (rcData[RC_DATA_MODE_ROLL].setpoint > 0.5f)
 				{
-					case GIM_IDLE :
-						// wait 2 sec to settle ACC, before PID controlerbecomes active
-						if (now - stateStart >= IDLE_TIME_SEC)
-						{
-						gimState = GIM_UNLOCKED;
-						stateStart = now;
-						}
-						break;
-					case GIM_UNLOCKED :
-						// allow PID controller to settle on ACC position
-						if (now - stateStart >= LOCK_TIME_SEC)
-						{
-						gimState = GIM_LOCKED;
-						stateStart = now;
-						}
-						break;
-					case GIM_LOCKED :
-						// normal operation
-						break;
+					tmp = true;
 				}
-					// gimbal state actions
-				switch (gimState) {
-					case GIM_IDLE :
-						enableMotorUpdates = false;
-						LEDGREPIN_OFF
-						setACCFastMode(true);
-						break;
-					case GIM_UNLOCKED :
-						enableMotorUpdates = true;
-						LEDGREPIN_ON
-						setACCFastMode(true);
-						break;
-					case GIM_LOCKED :
-						enableMotorUpdates = true;
-						LEDGREPIN_ON
-						setACCFastMode(false);
-						break;
-				}
+			}
+			RollLocked = tmp;
+
+			if (config.profiles[0].rcConfig[axisROLL].minOutput < config.profiles[0].rcConfig[axisROLL].maxOutput) {
+				RollPhiSet = constrain(RollPhiSet, config.profiles[0].rcConfig[axisROLL].minOutput, config.profiles[0].rcConfig[axisROLL].maxOutput);
+			} else {
+				RollPhiSet = constrain(RollPhiSet, config.profiles[0].rcConfig[axisROLL].maxOutput, config.profiles[0].rcConfig[axisROLL].minOutput);
+			}
+			main_loop_duration[14].append( measure_micro_delay(unowlap, micros()) );
+			unowlap = micros();
 			break;
-				case 10:
-					count=0;
-					break;
-				default:
-					break;
-		}
-		count++;
-		sCmd.readSerial();
+		case 9:
+			// RC yaw function
+			if (rcData[RC_DATA_YAW].valid){
+				if(config.profiles[0].rcConfig[axisYAW].absolute){
+					YawPhiSet = rcData[RC_DATA_YAW].setpoint;
+				} else {
+					if(fabs(rcData[RC_DATA_YAW].rcSpeed)>0.01) {
+						YawPhiSet += rcData[RC_DATA_YAW].rcSpeed * 0.01;
+					}
+				}
+			} else {
+				YawPhiSet = 0;
+			}
+
+			//verifico se  stato richiesto il reset
+			tmp = false;
+			if (rcData[RC_DATA_RESET_YAW].valid) {
+				//il reset mi interessa solo se sto pilotando in relativo
+				if(!config.profiles[0].rcConfig[axisYAW].absolute) {
+					//if (rcData[RC_DATA_RESET_YAW].rcSpeed > 0)
+					if (rcData[RC_DATA_RESET_YAW].setpoint > 0.5f)
+					{
+						//YawPhiSet = 0;
+						tmp = true;
+					}
+				}
+			}
+			YawResetting = tmp;
+
+			tmp = false;
+			if (rcData[RC_DATA_MODE_YAW].valid) {
+				if (rcData[RC_DATA_MODE_YAW].setpoint > 0.5f)
+				{
+					tmp = true;
+				}
+			}
+			YawLocked = tmp;
+
+			if ((config.profiles[0].rcConfig[axisYAW].minOutput == config.profiles[0].rcConfig[axisYAW].maxOutput) && (config.profiles[0].rcConfig[axisYAW].maxOutput == 0)) {
+				//normalizzare il phiset genera dei casini micidiali quando si salta da -180 a 180 e viceversa
+				//quindi lo evito
+				//YawPhiSet = normalize_yaw(YawPhiSet);
+			} else if (config.profiles[0].rcConfig[axisYAW].minOutput < config.profiles[0].rcConfig[axisYAW].maxOutput) {
+				YawPhiSet = constrain(YawPhiSet, config.profiles[0].rcConfig[axisYAW].minOutput, config.profiles[0].rcConfig[axisYAW].maxOutput);
+			} else {
+				YawPhiSet = constrain(YawPhiSet, config.profiles[0].rcConfig[axisYAW].maxOutput, config.profiles[0].rcConfig[axisYAW].minOutput);
+			}
+			main_loop_duration[15].append( measure_micro_delay(unowlap, micros()) );
+			unowlap = micros();
+			break;
+#endif
+		case 10:
+#ifdef STACKHEAPCHECK_ENABLE
+			stackHeapEval(false);
+#endif
+			count=0;
+			break;
+		default:
+			break;
 	}
+	count++;
+
+	//****************************
+	// check RC channel timeouts
+	//****************************
+#ifdef GIMBAL_ENABLE_RC
+	checkRcTimeouts();
+#endif
+	main_loop_duration[16].append( measure_micro_delay(unowlap, micros()) );
+	unowlap = micros();
+
+	//****************************
+	// Evaluate Serial inputs
+	//****************************
+	//verifico se devo cambiare seriale da UART a USB
+#ifdef GIMBAL_ENABLE_USB
+	if (SerialUSB.isConnected())
+		cliSerial = (FastSerial*)&SerialUSB;
+	else
+		cliSerial = &SerialDBG;
+	sCmd.setSerialPort(cliSerial);
+#endif
+	sCmd.readSerial();
+
+	main_loop_duration[17].append( measure_micro_delay(unowlap, micros()) );
+
+
+
+
+	}
+
 }
+
+

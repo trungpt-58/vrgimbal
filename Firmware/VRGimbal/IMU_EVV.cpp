@@ -37,6 +37,8 @@
 
 #include "main.h"
 
+#include "LowPassFilter2p.h"
+
 #if defined ( IMU_EVV )
 
 //******  advanced users settings *******************
@@ -53,7 +55,11 @@
 float AccAngleSmooth[EULAR];
 float CameraOrient[EULAR];
 
-bool g_imu_use_compass = false;
+float CameraOrient2[EULAR];
+
+
+LowPassFilter2p lpfIMU2(DT_FLOAT, 0);
+float lpfIMU2_constant = 0;
 
 void EVV_Init_Orientation();
 
@@ -87,25 +93,6 @@ void initSensorOrientationDefault() {
 	sensorDef.Mag[axisPITCH].dir = -1;
 	sensorDef.Mag[axisYAW].dir = 1;
 
-
-//tentativo di allineamento con BruGi
-//	// channel assignment
-//	sensorDef.Gyro[axisROLL].idx = 1; //0;
-//	sensorDef.Gyro[axisPITCH].idx = 0; //1;
-//	sensorDef.Gyro[axisYAW].idx = 2;
-//
-//	sensorDef.Acc[axisROLL].idx = 1; //0;
-//	sensorDef.Acc[axisPITCH].idx = 0; //1;
-//	sensorDef.Acc[axisYAW].idx = 2;
-//
-//	// direction
-//	sensorDef.Gyro[axisROLL].dir = -1; //1;
-//	sensorDef.Gyro[axisPITCH].dir = 1;
-//	sensorDef.Gyro[axisYAW].dir = 1;
-//
-//	sensorDef.Acc[axisROLL].dir = -1; //1;
-//	sensorDef.Acc[axisPITCH].dir = 1;
-//	sensorDef.Acc[axisYAW].dir = 1;
   
 }
 
@@ -187,47 +174,78 @@ void initIMU() {
 	gyroScale =  1.0 / resolutionDevider / 180.0 * PI;  // convert to radians
 
 	setACCFastMode(false);
-#ifdef GIMBAL_ENABLE_COMPASS
-	g_imu_use_compass = true;
-
-	cliSerial->print("COMPASS Init\r\n");
-	if (!compass.init() || !compass.read()) {
-		//compass.null_offsets_enable();
-		cliSerial->println("COMPASS INIT ERROR");
-	}
-#endif
 
 }
 
 
+void setIMU2LPF() //float decayTime)
+{
+//	float f = 0.0f;
+//	if (decayTime > 0)
+//		f = 1.0f / (2.0f * PI * decayTime);
+//	float sf = LOOPUPDATE_FREQ;  //sampling freq
+//
+//	lpfIMU2.set_cutoff_frequency(sf, f);
+
+	//lpfIMU2_constant = (float)DT_FLOAT/((float) config.profiles[0].mpu2LPF / 10000.0f + DT_FLOAT);
+
+	if (config.profiles[0].mpu2LPF > 0)
+	{
+		float CUTOFF = (float) config.profiles[0].mpu2LPF;
+		float RC = 1.0f/(CUTOFF*2.0f*3.14f);
+		float dt = DT_FLOAT; // 1/SAMPLE_RATE;
+		float alpha = dt/(RC+dt);
+		lpfIMU2_constant = alpha;
+
+		cliSerial->print("IMU2_LPF=");
+		cliSerial->print((int) ( 1000.0f * lpfIMU2_constant ));
+		cliSerial->println();
+
+	} else {
+		lpfIMU2_constant = 1.0f;
+		cliSerial->println("IMU2_LPF NO FILTER");
+	}
+
+
+}
+
 float _readGyros_lap = 0.0f;
+uint32_t _readGyros_lap_us = 0;
 
 void readGyros() {
 	int16_t axisRot[3];
-	unsigned char idx;
+	uint8_t idx;
 	int i;
 
 
 	//misuro il tempo dall'ultima lettura
 	static uint32_t last_gyro_update = 0;
 	uint32_t now = micros();
-	_readGyros_lap = ((float) measure_micro_delay( last_gyro_update, now) / 1000000.0f);
+
+	//_readGyros_lap = ((float) measure_micro_delay( last_gyro_update, now) / 1000000.0f);
+	_readGyros_lap_us = measure_micro_delay( last_gyro_update, now);
+	_readGyros_lap = ((float) _readGyros_lap_us / 1000000.0f);
 	last_gyro_update = now;
 
 	if (_readGyros_lap > 10 * DT_FLOAT)
 		_readGyros_lap = DT_FLOAT;
 
 
-	// read gyros
-	mpu.getRotation(&axisRot[0], &axisRot[1], &axisRot[2]);
-
-	for (i = 0; i < 3; i++)
+	if (!g_bTest[0])
 	{
-		idx = sensorDef.Gyro[i].idx;
-		gyroADC[i] = axisRot[idx]-gyroOffset[idx];
-		gyroADC[i] *= sensorDef.Gyro[i].dir;
-	}
+		// read gyros
+		mpu.getRotation(&axisRot[0], &axisRot[1], &axisRot[2]);
 
+		for (i = 0; i < 3; i++)
+		{
+			idx = sensorDef.Gyro[i].idx;
+			gyroADC[i] = axisRot[idx]-gyroOffset[idx];
+			if ((gyroADC[i] < gyroDeadBand[idx]) && (gyroADC[i] > -gyroDeadBand[idx]))
+				gyroADC[i] = 0;
+			gyroADC[i] *= sensorDef.Gyro[i].dir;
+		}
+
+	}
 	if (mpu_yaw_present)
 	{
 #ifdef IMU_SECONDARY_ON_ROLL
@@ -237,9 +255,13 @@ void readGyros() {
 		{
 			idx = sensorDef.Gyro[i].idx;
 			gyroADC2[i] = axisRot[idx]-gyroOffset2[idx];
+			if ((gyroADC2[i] < gyroDeadBand2[idx]) && (gyroADC2[i] > -gyroDeadBand2[idx]))
+				gyroADC2[i] = 0;
 			gyroADC2[i] *= sensorDef.Gyro[i].dir;
 		}
 #else
+
+		//LETTURA SEMPLIFICATA
 		i = 2;
 		idx = sensorDef.Gyro[i].idx;
 		int16_t rotYaw = 0;
@@ -257,7 +279,10 @@ void readGyros() {
 
 		}
 		gyroADC2[i] = rotYaw - gyroOffset2[idx];
+		if ((gyroADC2[i] < gyroDeadBand2[idx]) && (gyroADC2[i] > -gyroDeadBand2[idx]))
+			gyroADC2[i] = 0;
 		gyroADC2[i] *= sensorDef.Gyro[i].dir;
+
 #endif
 	}
 
@@ -265,7 +290,12 @@ void readGyros() {
 
 void readACC(axisDef axis) {
 	// get acceleration
-	unsigned char idx;
+
+	if (g_bTest[0])
+		return;
+
+
+	char idx;
 	int16_t val;
 	idx = sensorDef.Acc[axis].idx;
 	val = mpu.getAccelerationN(idx);  // TODO: 370us
@@ -281,38 +311,6 @@ void readACC(axisDef axis) {
 	//accADC[axis] = accScale[axis] * val - accOffset[axis] ;
 
 }
-
-#ifdef GIMBAL_ENABLE_COMPASS
-void readMAG()
-{
-	if (g_imu_use_compass)
-	{
-		if (compass.read())
-		{
-			compass.set_learn(true);
-			//compass.null_offsets();
-		}
-	}
-}
-void updateMAG()
-{
-
-}
-
-void updateMAGAttitude()
-{
-
-	if (g_imu_use_compass)
-	{
-		float p = ((float) angle[axisPITCH] / 1000.0);
-		float r = ((float) angle[axisROLL] / 1000.0);
-		float heading = compass.calculate_yaw(r, p);
-		//angle[axisYAW] = (config.angleOffsetYaw * 10) + (int32_t) (heading * 1000.0 * 180.0 / PI) ;
-		CameraOrient[axisYAW] =  (1.0 - AccComplFilterConst) * CameraOrient[axisYAW]  + AccComplFilterConst * heading;
-	}
-}
-
-#endif
 
 
 Vector3f meanGyro;
@@ -377,7 +375,10 @@ void print_raw(float x1,float y1,float z1,
 
 }
 
-
+uint32_t  get_gyro_lap()
+{
+	return _readGyros_lap_us;
+}
 
 void updateGyroAttitude(){
 	uint8_t axis;
@@ -389,17 +390,6 @@ void updateGyroAttitude(){
 		GyroData[axis] = (float) gyroADC[axis]  * gyroScale;
 	}
 
-//	GyroRate[axisPITCH] = GyroData[axisX];
-//	//CameraOrient[axisPITCH] = (CameraOrient[axisPITCH] + GyroRate[axisPITCH] * lap) + 0.0002 * (AccAngleSmooth[axisPITCH] - CameraOrient[axisPITCH]); //Pitch Horizon
-//	CameraOrient[axisPITCH] = (1.0 - AccComplFilterConst) * (CameraOrient[axisPITCH] + GyroRate[axisPITCH] * _readGyros_lap) + AccComplFilterConst * AccAngleSmooth[axisPITCH]; //Pitch Horizon
-//
-//	GyroRate[axisROLL] = -GyroData[axisZ] * sin(CameraOrient[axisPITCH]) + GyroData[axisY] * cos(fabs(CameraOrient[axisPITCH]));
-//	//CameraOrient[axisROLL] = (CameraOrient[axisROLL] + GyroRate[axisROLL] * lap) + 0.0002 * (AccAngleSmooth[axisROLL] - CameraOrient[axisROLL]); //Roll Horizon
-//	CameraOrient[axisROLL] = (1.0 - AccComplFilterConst) * (CameraOrient[axisROLL] + GyroRate[axisROLL] * _readGyros_lap) + AccComplFilterConst * AccAngleSmooth[axisROLL]; //Roll Horizon
-//
-//	GyroRate[axisYAW] = -GyroData[axisZ] * cos(fabs(CameraOrient[axisPITCH])) - GyroData[axisY] * sin(CameraOrient[axisPITCH]); //presuming Roll is horizontal
-//	CameraOrient[axisYAW] = (CameraOrient[axisYAW] + GyroRate[axisYAW] * _readGyros_lap);
-
 	//applico qui solo il deltaGyro, la parte acc la applico nella funzione dedicata
 	GyroRate[axisPITCH] = GyroData[axisX];
 	CameraOrient[axisPITCH] = CameraOrient[axisPITCH] + GyroRate[axisPITCH] * _readGyros_lap;
@@ -407,18 +397,68 @@ void updateGyroAttitude(){
 	GyroRate[axisROLL] = -GyroData[axisZ] * sin(CameraOrient[axisPITCH]) + GyroData[axisY] * cos(fabs(CameraOrient[axisPITCH]));
 	CameraOrient[axisROLL] = CameraOrient[axisROLL] + GyroRate[axisROLL] * _readGyros_lap;
 
-	if (mpu_yaw_present)
-	{
-		#ifdef IMU_SECONDARY_ON_ROLL
-			TODO: gestire la seconda imu sul roll
-		#else
-			GyroRate[axisYAW] = -(float) gyroADC2[axisZ]  * gyroScale;
-		#endif
-	} else {
-		GyroRate[axisYAW] = -GyroData[axisZ] * cos(fabs(CameraOrient[axisPITCH])) - GyroData[axisY] * sin(CameraOrient[axisPITCH]); //presuming Roll is horizontal
-	}
+	//yaw provvisorio
+	GyroRate[axisYAW] = -GyroData[axisZ] * cos(fabs(CameraOrient[axisPITCH])) - GyroData[axisY] * sin(CameraOrient[axisPITCH]); //presuming Roll is horizontal
 	CameraOrient[axisYAW] = CameraOrient[axisYAW] + GyroRate[axisYAW] * _readGyros_lap;
 
+	//SECONDA IMU
+	if (mpu_yaw_present)
+	{
+
+		float GyroData2[3];
+		float GyroRate2[EULAR];
+
+		for (axis = 0; axis < 3; axis++) {
+			if (config.profiles[0].mpu2LPF == 0)
+			{
+				//no filtro
+				gyroADC2_lfp[axis] = (float) gyroADC2[axis];
+			} else {
+				//filtro 2 ordine
+				//gyroADC2_lfp[axis] = lpfIMU2.apply((float) gyroADC2[axis]);
+				//filtro LPF semplice
+				gyroADC2_lfp[axis] = (1.0 - lpfIMU2_constant) * gyroADC2_lfp[axis] + lpfIMU2_constant * (float) gyroADC2[axis];
+			}
+			GyroData2[axis] = -  gyroADC2_lfp[axis] * gyroScale;
+		}
+
+#ifdef IMU_SECONDARY_ON_ROLL
+#else
+
+		GyroRate2[axisYAW] = -GyroData2[axisZ];
+		CameraOrient2[axisYAW] = CameraOrient2[axisYAW] + GyroRate2[axisYAW] * _readGyros_lap;
+#endif
+		//hack per il pid
+		CameraOrient[axisYAW] = CameraOrient2[axisYAW];
+	}
+
+
+
+//	if (mpu_yaw_present)
+//	{
+//		#ifdef IMU_SECONDARY_ON_ROLL
+//			TODO: gestire la seconda imu sul roll
+//		#else
+//			//gyroADC2_lfp[axisZ] = lpfIMU2.apply((float) gyroADC2[axisZ]);
+//			//filtro LPF semplice
+//			gyroADC2_lfp[axisZ] = (1.0 - lpfIMU2_constant) * gyroADC2_lfp[axisZ] + lpfIMU2_constant * (float) gyroADC2[axisZ];
+//			GyroRate[axisYAW] = -  gyroADC2_lfp[axisZ] * gyroScale;
+//
+//			//GyroRate[axisYAW] = - gyroADC2[axisZ] * gyroScale;
+//		#endif
+//	} else {
+//		GyroRate[axisYAW] = -GyroData[axisZ] * cos(fabs(CameraOrient[axisPITCH])) - GyroData[axisY] * sin(CameraOrient[axisPITCH]); //presuming Roll is horizontal
+//	}
+//	CameraOrient[axisYAW] = CameraOrient[axisYAW] + GyroRate[axisYAW] * _readGyros_lap;
+////	//filtro passa basso lo yaw
+////	if (mpu_yaw_present)
+////		CameraOrient[axisYAW] = lpfIMU2.apply(CameraOrient[axisYAW]);
+//
+////	//constraint -PI .. PI
+////	if (CameraOrient[axisYAW] > PI)
+////		CameraOrient[axisYAW] = CameraOrient[axisYAW] - 2 * PI;
+////	if (CameraOrient[axisYAW] < -PI)
+////			CameraOrient[axisYAW] = CameraOrient[axisYAW] + 2 * PI;
 
 }
 
@@ -426,9 +466,9 @@ void updateACC(){
 	float AccAngle[EULAR];
 	if (accADC[axisZ] != 0)
 	{
-		//AccAngle[axisROLL] = -(atan2(accADC[axisX], accADC[axisZ])); //Calculating pitch ACC angle
-		AccAngle[axisROLL] = -sgn(atan2(accADC[axisX], accADC[axisZ])) * fabs( atan2(accADC[axisX], sqrt(accADC[axisZ] * accADC[axisZ] + accADC[axisY] * accADC[axisY]))); //Calculating pitch ACC angle
-		AccAngle[axisPITCH] = +(atan2(accADC[axisY], accADC[axisZ])); //Calculating roll ACC angle
+		//AccAngle[axisROLL] = -(atan2_substitute(accADC[axisX], accADC[axisZ])); //Calculating pitch ACC angle
+		AccAngle[axisROLL] = -sgn(atan2_substitute(accADC[axisX], accADC[axisZ])) * fabs( atan2_substitute(accADC[axisX], sqrt(accADC[axisZ] * accADC[axisZ] + accADC[axisY] * accADC[axisY]))); //Calculating pitch ACC angle
+		AccAngle[axisPITCH] = +(atan2_substitute(accADC[axisY], accADC[axisZ])); //Calculating roll ACC angle
 
 		//LPF on Acc
 		utilLP_float(&(AccAngleSmooth[axisROLL]), AccAngle[axisROLL], (1.0f/ACC_LPF_FACTOR));
@@ -437,6 +477,7 @@ void updateACC(){
 		accMag = sqrt(accADC[axisX] * accADC[axisX] + accADC[axisY] * accADC[axisY]+ accADC[axisZ] * accADC[axisZ]);
 
 	}
+
 }
 
 
@@ -446,6 +487,7 @@ void updateACCAttitude(){
 		CameraOrient[axisPITCH] = (1.0 - AccComplFilterConst) * CameraOrient[axisPITCH] + AccComplFilterConst * AccAngleSmooth[axisPITCH]; //Pitch Horizon
 		CameraOrient[axisROLL] =  (1.0 - AccComplFilterConst) * CameraOrient[axisROLL]  + AccComplFilterConst * AccAngleSmooth[axisROLL]; //Roll Horizon
 	}
+
 }
 
 
@@ -475,7 +517,9 @@ void EVV_Init_Orientation()
 	CameraOrient[axisPITCH] = 0.0f;
 	CameraOrient[axisYAW] = 0.0f;
 
-
+	CameraOrient2[axisROLL] = 0.0f;
+	CameraOrient2[axisPITCH] = 0.0f;
+	CameraOrient2[axisYAW] = 0.0f;
 
     int init_loops = 150;
     float AccAngle[NUMAXIS];
@@ -487,9 +531,9 @@ void EVV_Init_Orientation()
     	readACC(axisPITCH);
     	readACC(axisYAW);
 
-        //AccAngle[axisROLL] = -(atan2(accADC[axisX], accADC[axisZ])); //Calculating pitch ACC angle
-    	AccAngle[axisROLL] = -sgn(atan2(accADC[axisX], accADC[axisZ])) * fabs( atan2(accADC[axisX], sqrt(accADC[axisZ] * accADC[axisZ] + accADC[axisY] * accADC[axisY]))); //Calculating pitch ACC angle
-        AccAngle[axisPITCH] = +(atan2(accADC[axisY], accADC[axisZ])); //Calculating roll ACC angle
+        //AccAngle[axisROLL] = -(atan2_substitute(accADC[axisX], accADC[axisZ])); //Calculating pitch ACC angle
+    	AccAngle[axisROLL] = -sgn(atan2_substitute(accADC[axisX], accADC[axisZ])) * fabs( atan2_substitute(accADC[axisX], sqrt(accADC[axisZ] * accADC[axisZ] + accADC[axisY] * accADC[axisY]))); //Calculating pitch ACC angle
+        AccAngle[axisPITCH] = +(atan2_substitute(accADC[axisY], accADC[axisZ])); //Calculating roll ACC angle
 
         if (i == 0)
         {
@@ -509,6 +553,11 @@ void EVV_Init_Orientation()
     CameraOrient[axisPITCH] = AccAngleSmooth[axisPITCH];
     CameraOrient[axisROLL] = AccAngleSmooth[axisROLL];
     CameraOrient[axisYAW] = 0.0;
+
+
+
+
+
 }
 
 

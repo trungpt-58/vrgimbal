@@ -108,32 +108,32 @@ OCRxB                                                                      Outpu
 
 #if (BL_PHASE_CONFIG == 1)
 #define BL_PHASE_A  0
-#define BL_PHASE_B  85
-#define BL_PHASE_C  170
+#define BL_PHASE_B  120.0f
+#define BL_PHASE_C  240.0f
 
 #elif (BL_PHASE_CONFIG == 2)
 #define BL_PHASE_A  0
-#define BL_PHASE_B  170
-#define BL_PHASE_C  85
+#define BL_PHASE_B  240.0f
+#define BL_PHASE_C  120.0f
 
 #elif (BL_PHASE_CONFIG == 3)
-#define BL_PHASE_A  85
+#define BL_PHASE_A  120.0f
 #define BL_PHASE_B  0
-#define BL_PHASE_C  170
+#define BL_PHASE_C  240.0f
 
 #elif (BL_PHASE_CONFIG == 4)
-#define BL_PHASE_A  85
-#define BL_PHASE_B  170
+#define BL_PHASE_A  120.0f
+#define BL_PHASE_B  240.0f
 #define BL_PHASE_C  0
 
 #elif (BL_PHASE_CONFIG == 5)
-#define BL_PHASE_A  170
+#define BL_PHASE_A  240.0f
 #define BL_PHASE_B  0
-#define BL_PHASE_C  85
+#define BL_PHASE_C  120.0f
 
 #elif (BL_PHASE_CONFIG == 6)
-#define BL_PHASE_A  170
-#define BL_PHASE_B  85
+#define BL_PHASE_A  240.0f
+#define BL_PHASE_B  120.0f
 #define BL_PHASE_C  0
 
 #endif
@@ -156,14 +156,25 @@ pwmsin_t g_pwmOffset = 0;
 //float g_pwmSinMotor[N_SIN];
 int32_t g_pwmSinMotor[N_SIN];
 
-#define MOTOR_COUNT 3
+#define MOTOR_COUNT BOARD_MOTOR_COUNT
 #define MOTOR_PIN_COUNT 3
 
+#if (MOTOR_COUNT == 3)
 uint8 MOTOR_PINS[][MOTOR_PIN_COUNT] = {
 		{ BOARD_MOT1_CMD_A, BOARD_MOT1_CMD_B, BOARD_MOT1_CMD_C},
 		{ BOARD_MOT2_CMD_A, BOARD_MOT2_CMD_B, BOARD_MOT2_CMD_C},
 		{ BOARD_MOT3_CMD_A, BOARD_MOT3_CMD_B, BOARD_MOT3_CMD_C}
 };
+#elif (MOTOR_COUNT == 2)
+uint8 MOTOR_PINS[][MOTOR_PIN_COUNT] = {
+		{ BOARD_MOT1_CMD_A, BOARD_MOT1_CMD_B, BOARD_MOT1_CMD_C},
+		{ BOARD_MOT2_CMD_A, BOARD_MOT2_CMD_B, BOARD_MOT2_CMD_C}
+};
+#elif (MOTOR_COUNT == 1)
+uint8 MOTOR_PINS[][MOTOR_PIN_COUNT] = {
+		{ BOARD_MOT1_CMD_A, BOARD_MOT1_CMD_B, BOARD_MOT1_CMD_C}
+};
+#endif
 
 enum MOTOR_PHASE_PINS
 {
@@ -174,7 +185,7 @@ enum MOTOR_PHASE_PINS
 
 //int MOTOR_PHASES[] = { BL_PHASE_A, BL_PHASE_B, BL_PHASE_C };
 
-int MOTOR_PHASES[] = { BL_PHASE_A * N_SIN / 256, BL_PHASE_B * N_SIN / 256, BL_PHASE_C  * N_SIN / 256 };
+int MOTOR_PHASES[] = { (int) ( BL_PHASE_A * N_SIN / 360.0f), (int)(BL_PHASE_B * N_SIN / 360.0f), (int) (BL_PHASE_C  * N_SIN / 360.0f) };
 
 
 //compatibilità
@@ -202,10 +213,15 @@ void init_motors(void)
 	digitalWrite(BOARD_MOTOR_EN, LOW);
 
 	cliSerial->print("Init MOTOR SENSE\r\n");
+#ifdef BOARD_MOT1_ISENSE
 	pinMode(BOARD_MOT1_ISENSE, INPUT_ANALOG);
+#endif
+#ifdef BOARD_MOT2_ISENSE
 	pinMode(BOARD_MOT2_ISENSE, INPUT_ANALOG);
+#endif
+#ifdef BOARD_MOT2_ISENSE
 	pinMode(BOARD_MOT3_ISENSE, INPUT_ANALOG);
-
+#endif
 	cliSerial->print("Init PWM for MOTORs\r\n");
 
 
@@ -297,12 +313,23 @@ void initBlController()
 
 void calcSinusArray(pwmsin_t pwmResolution)
 {
-	//cliSerial->printf("pwmResolution %d ", pwmResolution);
+//	cliSerial->println("SIN FORMULA");
+//	cliSerial->printf("SIN pwmResolution %d \r\n", pwmResolution);
 #ifdef PWM_USE_OFFSET
 	g_pwmOffset = pwmResolution * PWM_OFFSET_FACTOR;
 #endif
 
 	float funval = 0;
+
+	int frm2X1 = (int) (N_SIN * (config.profiles[0].pwmFormulaA / 1024.0f)) ;
+	int frm2X2 = (int) (N_SIN * (config.profiles[0].pwmFormulaB / 1024.0f));
+	float frm2Y1 = sin(2.0 * PI * (float)frm2X1 / (float) N_SIN);
+	float frm2Y2 = sin(2.0 * PI * (float)frm2X2 / (float) N_SIN);
+	float frm2dY = (frm2Y2 - frm2Y1) / (float) N_SIN;
+	if ((frm2X2 - frm2X1) != 0)
+		frm2dY = (frm2Y2 - frm2Y1) / (float) (frm2X2 - frm2X1);
+
+	float prevVal = 0;
 
 	for(int i=0; i<N_SIN; i++)
 	{
@@ -326,6 +353,28 @@ void calcSinusArray(pwmsin_t pwmResolution)
 				funval = funval + gradino;
 
 			g_pwmSinMotor[i] = (int32_t) funval;
+		} else if (config.profiles[0].pwmFormula == 2)
+		{
+			//formula sinusoidale modificata
+
+			float v = 0; //sin(x);
+
+			//tra 140 e 240 approssimo con una retta
+			if (((i > frm2X1) && (i < frm2X2)) ||
+					((i > N_SIN - frm2X2) && (i < N_SIN - frm2X1)))
+			{
+				v = prevVal + frm2dY;
+			} else if (((i > frm2X1 + N_SIN/2) && (i < frm2X2 + N_SIN/2)) ||
+					((i > N_SIN/2 - frm2X2) && (i < N_SIN/2 - frm2X1)))
+			{
+				v = prevVal - frm2dY;
+			} else
+				v = sin(x);
+
+			g_pwmSinMotor[i] =  (1.0 + v) * (float) pwmResolution / 2.0;
+
+			prevVal = v;
+
 		} else {
 			g_pwmSinMotor[i] = (1.0 + sin(x)) * (float) pwmResolution / 2.0;
 
@@ -400,9 +449,11 @@ inline void setPwmSin(int pin, int pos, int pwmMax)
 
 
 
-	pwmsin_t escursione = (pwmsin_t) ((float)( motors_pwm_period * pwmMax) / 255.0f);
+	//pwmsin_t escursione = (pwmsin_t) ((float)( motors_pwm_period * pwmMax) / 255.0f);
+	//pwmsin_t pwmSin =  (pwmsin_t) ((float)(g_pwmSinMotor[pos] * pwmMax) / 255.0f );
 
-	pwmsin_t pwmSin =  (pwmsin_t) ((float)(g_pwmSinMotor[pos] * pwmMax) / 255.0f );
+	pwmsin_t escursione = (pwmsin_t) (( motors_pwm_period * pwmMax) / 255.0f);
+	pwmsin_t pwmSin =  (pwmsin_t) ((g_pwmSinMotor[pos] * pwmMax) / 255.0f );
 
 	if (config.profiles[0].pwmMode == 0)
 	{
@@ -623,6 +674,7 @@ void resetMotorFreq()
 	}
 	motors_pwm_period = period;
 
+
 	recalcMotorStuff();
 }
 
@@ -704,14 +756,14 @@ void motorInterrupt_TEST()
 
 	//misuro durata funzione
 	uint32_t lap = measure_micro_delay(unow, micros());
-	interrupt_mean_duration.append((float) lap);
+	interrupt_mean_duration.append(lap);
 
 	//misuro intervallo tra le chiamate
 	static uint32_t ulast_motor_interrupt = 0;
 	if (ulast_motor_interrupt != 0)
 	{
 		uint32_t lap2 = measure_micro_delay(ulast_motor_interrupt, unow);
-		interrupt_mean_lap.append((float) lap2);
+		interrupt_mean_lap.append(lap2);
 	}
 	ulast_motor_interrupt = unow;
 }
@@ -736,12 +788,24 @@ void motorInterrupt()
 		_last_motor_interrupt = now;
 		if (enableMotorUpdates)
 		{
+
+
+
+
 			// move pitch motor
-			MoveMotorPosSpeed(config.profiles[0].axisConfig[axisPITCH].motorNumber, pitchMotorDrive, config.profiles[0].axisConfig[axisPITCH].maxPWM);
+			MoveMotorPosSpeed(config.profiles[0].axisConfig[axisPITCH].motorNumber, pitchMotorDrive, config.profiles[0].axisConfig[axisPITCH].maxPWM); // pwm_val[axisPITCH]);
 			// move roll motor
-			MoveMotorPosSpeed(config.profiles[0].axisConfig[axisROLL].motorNumber, rollMotorDrive, config.profiles[0].axisConfig[axisROLL].maxPWM);
+			MoveMotorPosSpeed(config.profiles[0].axisConfig[axisROLL].motorNumber, rollMotorDrive, config.profiles[0].axisConfig[axisROLL].maxPWM); // pwm_val[axisROLL]);
+
+
 			// move roll yaw
-			MoveMotorPosSpeed(config.profiles[0].axisConfig[axisYAW].motorNumber, yawMotorDrive, config.profiles[0].axisConfig[axisYAW].maxPWM);
+			uint8_t tmpPWWM = config.profiles[0].axisConfig[axisYAW].maxPWM;
+//			if (config.profiles[0].axisConfig[axisYAW].stepsLimit > 0)
+//			{
+//				tmpPWWM = tmpPWWM - (getMotorCurrentRaw(axisY) * config.profiles[0].axisConfig[axisYAW].stepsLimit / 100);
+//			}
+
+			MoveMotorPosSpeed(config.profiles[0].axisConfig[axisYAW].motorNumber, yawMotorDrive, tmpPWWM); // pwm_val[axisYAW]);
 		}
 		// update event
 		motorUpdate = true;
@@ -749,18 +813,50 @@ void motorInterrupt()
 
 	//misuro durata funzione
 	uint32_t lap = measure_micro_delay(unow, micros());
-	interrupt_mean_duration.append((float) lap);
+	interrupt_mean_duration.append( lap);
 
 	//misuro intervallo tra le chiamate
 	static uint32_t ulast_motor_interrupt = 0;
 	if (ulast_motor_interrupt != 0)
 	{
 		uint32_t lap2 = measure_micro_delay(ulast_motor_interrupt, unow);
-		interrupt_mean_lap.append((float) lap2);
+		interrupt_mean_lap.append( lap2);
 	}
 	ulast_motor_interrupt = unow;
 }
 
+//#ifdef BOARD_MOT1_ISENSE
+uint16_t motorI[BOARD_MOTOR_COUNT];
+
+#if BOARD_MOTOR_COUNT > 2
+uint8_t motorIpin[BOARD_MOTOR_COUNT] = {BOARD_MOT1_ISENSE, BOARD_MOT2_ISENSE, BOARD_MOT3_ISENSE};
+#else
+uint8_t motorIpin[BOARD_MOTOR_COUNT] = {BOARD_MOT1_ISENSE, BOARD_MOT2_ISENSE };
+#endif
+
+void motorReadCurrent()
+{
+	for (int i = 0; i < BOARD_MOTOR_COUNT; i++)
+	{
+		uint16_t v = analogRead(motorIpin[i]);
+		motorI[i] = (motorI[i] + v) / 2;
+	}
+
+}
+
+uint16_t getMotorCurrentRaw(uint8_t axis)
+{
+	int i = config.profiles[0].axisConfig[axis].motorNumber;
+	return motorI[i];
+}
+
+float getMotorCurrent(uint8_t axis)
+{
+	int i = config.profiles[0].axisConfig[axis].motorNumber;
+	float v = 3.3f *( (float) motorI[i]/ 4096.0f ) / 250.0f;  //--> 250 Ohm di resistenza di prova
+	return v;
+}
+//#endif
 
 void motorMove(uint8_t motorNum, int steps)
 {

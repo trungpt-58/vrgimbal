@@ -1887,9 +1887,9 @@ int16_t MPU6050::getAccelerationY() {
  * @see getMotion6()
  * @see MPU6050_RA_ACCEL_ZOUT_H
  */
-int16_t MPU6050::getAccelerationN(unsigned char idx) {
-    unsigned char idxa = idx<<1;
-    unsigned char idxb = idxa+1;
+int16_t MPU6050::getAccelerationN(char idx) {    
+    char idxa = idx<<1;
+    char idxb = idxa+1;
     _I2Cx->read(devAddr, (uint8_t)MPU6050_RA_ACCEL_XOUT_H, (uint8_t)6, buffer);
     return (((int16_t)buffer[idxa]) << 8) | buffer[idxb];
 }
@@ -2493,6 +2493,10 @@ bool MPU6050::getSleepEnabled() {
  */
 void MPU6050::setSleepEnabled(bool enabled) {
     _I2Cx->writeBit(devAddr, MPU6050_RA_PWR_MGMT_1, MPU6050_PWR1_SLEEP_BIT, enabled);
+
+    //TODO: verificare che sia coerente. Tratto da EvvGC
+    if (enabled == false)
+        _I2Cx->write((uint8_t) devAddr, (uint8_t) MPU6050_RA_PWR_MGMT_2, (uint8_t) 0x00);
 }
 /** Get wake cycle enabled status.
  * When this bit is set to 1 and SLEEP is disabled, the MPU-60X0 will cycle

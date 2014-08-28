@@ -36,8 +36,8 @@
 
 
 #define VERSION_STATUS A // A = Alpha; B = Beta , N = Normal Release
-#define VERSION 114
-#define VERSION_EEPROM 13
+#define VERSION 116
+#define VERSION_EEPROM 17
 
 
 #define MOTOR_COUNT 3
@@ -56,7 +56,7 @@
 typedef uint16_t pwmsin_t; //uint8_t
 
 
-#define MOTORUPDATE_FREQ 1000 //500 //100 //1000                 // in Hz, 1000 is default // 1,2,4,8 for 32kHz, 1,2,4 for 4kHz
+#define MOTORUPDATE_FREQ 500 //1000 // 500 //100 //1000                 // in Hz, 1000 is default // 1,2,4,8 for 32kHz, 1,2,4 for 4kHz
 #define DT_INT_US (1000000/MOTORUPDATE_FREQ)
 #define DT_INT_MS (1000/MOTORUPDATE_FREQ)
 
@@ -68,8 +68,20 @@ typedef uint16_t pwmsin_t; //uint8_t
 #endif
 
 #define LOOPUPDATE_FREQ (MOTORUPDATE_FREQ/LOOPUPDATE_FACTOR)    // loop control sample rate equals motor update rate
-#define DT_FLOAT (1.0/LOOPUPDATE_FREQ)      // loop controller sample period dT
+#define DT_FLOAT (1.0f / (float) (LOOPUPDATE_FREQ))      // loop controller sample period dT
 #define DT_LOOP_MS (1000/LOOPUPDATE_FREQ)
+#define DT_LOOP_US (int)(1000000.0f/(float) (LOOPUPDATE_FREQ))
+
+
+
+
+//#define MOTORUPDATE_FREQ 250
+//#define DT_INT_US 4000
+//#define DT_INT_MS 4
+//#define LOOPUPDATE_FACTOR 1
+//#define LOOPUPDATE_FREQ 250
+//#define DT_FLOAT 4.0f
+//#define DT_LOOP_MS 4
 
 
 
@@ -89,8 +101,13 @@ typedef uint16_t pwmsin_t; //uint8_t
 // Number of sinus values for full 360 deg.
 // NOW FIXED TO 256 !!!
 // Reason: Fast Motor Routine using uint8_t overflow for stepping
-#define N_SIN 1024 // 512 //256
+#define N_SIN 4096 // 1024 // 512 //256
+
+#define MOTOR_DRIVE_RESCALER  1024  //--> per 4096
+//#define MOTOR_DRIVE_RESCALER  4096  //--> per 1024
+
 extern int32_t g_pwmSinMotor[N_SIN];
+//extern float g_pwmSinMotor[N_SIN];
 
 #define STEP_DOWNSCALE 1// 2 //3
 
@@ -107,13 +124,16 @@ extern int32_t g_pwmSinMotor[N_SIN];
 #define RC_TIMEOUT 100000
 
 
-#define RC_DATA_SIZE 	6
+#define RC_DATA_SIZE 	9
 #define RC_DATA_ROLL 	0
 #define RC_DATA_PITCH 	1
 #define RC_DATA_YAW 	2
 #define RC_DATA_RESET_ROLL	 	3
 #define RC_DATA_RESET_PITCH 	4
 #define RC_DATA_RESET_YAW 		5
+#define RC_DATA_MODE_ROLL	 	6
+#define RC_DATA_MODE_PITCH 		7
+#define RC_DATA_MODE_YAW 		8
 
 
 // PPM Decoder

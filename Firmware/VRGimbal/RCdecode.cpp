@@ -28,7 +28,7 @@
 
 // init RC config variables
 void initRC() {
-	for (unsigned char id = 0; id < 3; id++)
+	for (char id = 0; id < 3; id++)
 	{
 		rcLPF_tc[id] =  LOWPASS_K_FLOAT(config.profiles[0].rcConfig[id].LPF*0.1);
 	}
@@ -243,6 +243,15 @@ int getRCDataChannel(int index)
 	case RC_DATA_RESET_YAW:
 		return config.profiles[0].rcConfig[axisYAW].resetChannel;
 		break;
+	case RC_DATA_MODE_ROLL:
+		return config.profiles[0].rcConfig[axisROLL].modeChannel;
+		break;
+	case RC_DATA_MODE_PITCH:
+		return config.profiles[0].rcConfig[axisPITCH].modeChannel;
+		break;
+	case RC_DATA_MODE_YAW:
+		return config.profiles[0].rcConfig[axisYAW].modeChannel;
+		break;
 	}
 	return -1;
 }
@@ -402,7 +411,7 @@ void initRCPins()
   }
 #endif
 
-  for (unsigned char id = 0; id < RC_DATA_SIZE; id++)
+  for (char id = 0; id < RC_DATA_SIZE; id++)
   {
     cli();
     rcData[id].microsRisingEdge = 0;
@@ -459,7 +468,11 @@ inline void evalRCChannelAbsolute(rcData_t* rcData, int16_t rcMin, int16_t rcMax
     k = (float)(rcMax - rcMin)/(float)(MAX_RC - MIN_RC);
     y0 = rcMin + k * (float)(MID_RC - MIN_RC);
     rx = rcData->rx - rcMid;
-    utilLP_float(&rcData->setpoint, y0 + k * (float) rx, 0.05f);
+
+    //TEO 20140716 - tolgo il filtro passabasso qui visto che ne ho già uno fuori
+    //utilLP_float(&rcData->setpoint, y0 + k * (float) rx, 0.05f);
+    rcData->setpoint =  y0 + k * (float) rx;
+
     rcData->update = false;
   }
 }
@@ -471,7 +484,7 @@ void evaluateRC()
 
 	updateRCsignals();
 
-	for (unsigned char id = 0; id < 3; id++)
+	for (char id = 0; id < 3; id++)
 	{
 		if (config.profiles[0].rcConfig[id].absolute)
 			evalRCChannelAbsolute(&rcData[id], config.profiles[0].rcConfig[id].minOutput, config.profiles[0].rcConfig[id].maxOutput, config.profiles[0].rcMid);
@@ -483,6 +496,9 @@ void evaluateRC()
 	evalRCChannelAbsolute(&rcData[RC_DATA_RESET_PITCH], 0, 1, config.profiles[0].rcMid + RC_DEADBAND);
 	evalRCChannelAbsolute(&rcData[RC_DATA_RESET_YAW], 0, 1, config.profiles[0].rcMid + RC_DEADBAND);
 
+	evalRCChannelAbsolute(&rcData[RC_DATA_MODE_ROLL], 0, 1, config.profiles[0].rcMid + RC_DEADBAND);
+	evalRCChannelAbsolute(&rcData[RC_DATA_MODE_PITCH], 0, 1, config.profiles[0].rcMid + RC_DEADBAND);
+	evalRCChannelAbsolute(&rcData[RC_DATA_MODE_YAW], 0, 1, config.profiles[0].rcMid + RC_DEADBAND);
 
 }
 

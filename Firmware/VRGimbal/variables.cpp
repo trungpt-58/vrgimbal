@@ -43,6 +43,10 @@ void setDefaultParameters()
 		config.gyroOffset[i].Y = 0;
 		config.gyroOffset[i].Z = 0;
 
+		config.gyroDeadBand[i].X = 0;
+		config.gyroDeadBand[i].Y = 0;
+		config.gyroDeadBand[i].Z = 0;
+
 		config.accOffset[i].X = (int16_t) (CONFIG_FLOAT_SCALING * 0.0f);
 		config.accOffset[i].Y = (int16_t) (CONFIG_FLOAT_SCALING * 0.0f);
 		config.accOffset[i].Z = (int16_t) (CONFIG_FLOAT_SCALING * 0.0f);
@@ -121,6 +125,8 @@ void setDefaultParameters()
   config.profiles[0].pwmPhaseC = 240;
 */
   config.profiles[0].pwmFormula = 0;
+  config.profiles[0].pwmFormulaA = 70;
+  config.profiles[0].pwmFormulaB = 230;
 
 
 
@@ -157,6 +163,10 @@ void setDefaultParameters()
   config.profiles[0].rcConfig[axisPITCH].resetChannel = 2;
   config.profiles[0].rcConfig[axisROLL].resetChannel = 2;
   config.profiles[0].rcConfig[axisYAW].resetChannel = -1;
+
+  config.profiles[0].rcConfig[axisPITCH].modeChannel = -1;
+  config.profiles[0].rcConfig[axisROLL].modeChannel = -1;
+  config.profiles[0].rcConfig[axisYAW].modeChannel = -1;
 
   config.profiles[0].rcConfig[axisPITCH].absolute = false;
   config.profiles[0].rcConfig[axisROLL].absolute = false;
@@ -235,16 +245,21 @@ int8_t yawDirection = 1;
 int freqCounter=0; // TODO: back to char later ...
 
 
-int pitchMotorDrive = 0;
-int rollMotorDrive = 0;
-int yawMotorDrive = 0;
+int32_t pitchMotorDrive = 0;
+int32_t rollMotorDrive = 0;
+int32_t yawMotorDrive = 0;
 
-int pitchMotorDrive_PREV = 0;
-int rollMotorDrive_PREV = 0;
-int yawMotorDrive_PREV = 0;
-int pitchMotorDrive_INT_step = 0;
-int rollMotorDrive_INT_step = 0;
-int yawMotorDrive_INT_step = 0;
+int pitchMotorPWM = 0;
+int rollMotorPWM = 0;
+int yawMotorPWM = 0;
+
+
+int32_t pitchMotorDrive_PREV = 0;
+int32_t rollMotorDrive_PREV = 0;
+int32_t yawMotorDrive_PREV = 0;
+int32_t pitchMotorDrive_INT_step = 0;
+int32_t rollMotorDrive_INT_step = 0;
+int32_t yawMotorDrive_INT_step = 0;
 
 bool motor_update_values = false;
 
@@ -253,10 +268,6 @@ bool motor_update_values = false;
 bool enableMotorUpdates = false;
 
 
-// Variables for MPU6050
-float gyroPitch;
-float gyroRoll; //in deg/s
-float gyroYaw; //in deg/s
 
 float resolutionDevider;
 int16_t x_val;
@@ -274,6 +285,10 @@ bool PitchResetting = false;
 bool RollResetting = false;
 bool YawResetting = false;
 
+
+bool PitchLocked = false;
+bool RollLocked = false;
+bool YawLocked = false;
 
 
 
@@ -311,6 +326,7 @@ t_sensorOrientationDef sensorDef = {
 
 // gyro calibration value
 int16_t gyroOffset[3] = {0, 0, 0};
+int16_t gyroDeadBand[3] = {0, 0, 0};
 
 
 
@@ -322,7 +338,9 @@ float accADC[3];
 
 
 int16_t gyroOffset2[3] = {0, 0, 0};
+int16_t gyroDeadBand2[3] = {0, 0, 0};
 int16_t gyroADC2[3];
+float gyroADC2_lfp[3];
 
 
 
@@ -343,7 +361,7 @@ float AccComplFilterConst = 0;  // filter constant for complementary filter
 
 int16_t acc_25deg = 25;      //** TODO: check
 
-float angle[3]    = {0,0, 0};  // absolute angle inclination of MOTOR AXIS in multiple of 0.01 degree    180 deg = 18000
+int32_t angle[3]    = {0,0, 0};  // absolute angle inclination of MOTOR AXIS in multiple of 0.01 degree    180 deg = 18000
 
 //float estimAngle[3];
 //float angleIMU[3]    = {0,0, 0};  // absolute angle inclination of IMU in multiple of 0.01 degree    180 deg = 18000
@@ -372,10 +390,13 @@ realtimeStatistics interrupt_mean_duration;
 realtimeStatistics interrupt_mean_lap;
 realtimeStatistics loop_mean_lap;
 
+
+realtimeStatistics pid_mean_duration;
+realtimeStatistics imu_mean_duration;
+realtimeStatistics rc_mean_duration;
+
 bool g_bTest[GIMBAL_TEST_COUNT] = { false };
 
-bool g_bTestYawMotor = false;
-float g_fTestYawMotorValue = 0.0f;
-float g_fTestYawMotorSpeed = 0.0f;
+
 
 int g_driveAlert[3] = { -1, -1, -1 };

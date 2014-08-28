@@ -172,7 +172,7 @@
          float aA, aB, aC, nA, nB, nC, dA, dB, dC;
 
          //Iterate N times, ignore stop condition.
-         unsigned int n = 0;
+         int n = 0;
 
          while (n < max_iterations) {
                  n++;
@@ -332,7 +332,7 @@
 	float aA, aB, aC, nA, nB, nC, dA, dB, dC;
 
 	//Iterate N times, ignore stop condition.
-	unsigned int n = 0;
+	int n = 0;
 
 	while (n < max_iterations) {
 		  n++;

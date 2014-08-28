@@ -3,6 +3,31 @@
 //*******************************************************************
 
 //*******************************************************************
+//  v1.15  - 
+//*******************************************************************
+Inibito il pilotaggio dei motori in caso di fault sulla IMU.
+Rimossi i parametri sperimentali introdotti nella 1.14.
+Rimosso il filtro passabasso sulla conversione da RC a valore in evalRCChannelAbsolute.
+
+
+//*******************************************************************
+//  v1.14  - 
+//*******************************************************************
+
+Inserito opzione per specificare un canale radio per interrompere la guida su ciascun asse
+(utile soprattutto per bloccare lo yaw in fase di decollo)
+Inseriti dei parametri di test per abbassare la potenza oltre un certo angolo (sperimentale per problemi di vibrazione sul pitch a 90°) 
+
+v1.14c --> inserita compilazione condizionale per MicroGimbal (solo 2 assi)
+
+
+//*******************************************************************
+//  v1.13  - 
+//*******************************************************************
+
+
+
+//*******************************************************************
 //  v1.12  - 
 //*******************************************************************
 

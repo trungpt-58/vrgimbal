@@ -65,7 +65,7 @@ void print_enabled(bool b)
 }
 
 
-void setup_printf_P(const prog_char_t *fmt, ...)
+static void setup_printf_P(const prog_char_t *fmt, ...)
 {
     va_list arg_list;
     va_start(arg_list, fmt);
@@ -73,7 +73,7 @@ void setup_printf_P(const prog_char_t *fmt, ...)
     va_end(arg_list);
 }
 
-void setup_wait_key(void)
+static void setup_wait_key(void)
 {
     // wait for user input
     while (!cliSerial->available()) {
@@ -83,6 +83,33 @@ void setup_wait_key(void)
     while( cliSerial->available() ) {
         cliSerial->read();
     }
+}
+
+
+bool checkEsc()
+{
+	if (cliSerial->available())
+	{
+		int ch = cliSerial->read();
+		if (ch == 0x1B)
+			return true;
+	}
+	return false;
+}
+
+void print_vector(Vector3i v)
+{
+	cliSerial->print(v.x);cliSerial->print(F(" "));
+	cliSerial->print(v.y);cliSerial->print(F(" "));
+	cliSerial->print(v.z);cliSerial->print(F(" "));
+}
+
+
+void print_vector(Vector3f v)
+{
+	cliSerial->print(v.x);cliSerial->print(F(" "));
+	cliSerial->print(v.y);cliSerial->print(F(" "));
+	cliSerial->print(v.z);cliSerial->print(F(" "));
 }
 
 

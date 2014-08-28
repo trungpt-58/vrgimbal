@@ -75,6 +75,7 @@ void gyroOffsetCalibration(MPU6050 * p_mpu, int16_t * p_offsets)
   int calibGCounter = GYRO_INTERATIONS;
   
   // Set voltage on all motor phases to zero 
+  bool bEnableOld = enableMotorUpdates;
   enableMotorUpdates = false;
 
   // wait 1 second
@@ -132,7 +133,7 @@ void gyroOffsetCalibration(MPU6050 * p_mpu, int16_t * p_offsets)
     cliSerial->print(F("gyroOffset="));cliSerial->println(fp_gyroOffset[i], 3);
   }
 
-  enableMotorUpdates = true;
+  enableMotorUpdates = bEnableOld; //true;
 }
 
 void gyroOffsetCalibration_LSQ(MPU6050 * p_mpu, int16_t * p_offsets)
@@ -146,6 +147,7 @@ void gyroOffsetCalibration_LSQ(MPU6050 * p_mpu, int16_t * p_offsets)
   int calibGCounter = GYRO_INTERATIONS;
 
   // Set voltage on all motor phases to zero
+  bool bEnableOld = enableMotorUpdates;
   enableMotorUpdates = false;
 
   // wait 1 second
@@ -213,7 +215,7 @@ void gyroOffsetCalibration_LSQ(MPU6050 * p_mpu, int16_t * p_offsets)
     cliSerial->print(F("gyroOffset="));cliSerial->println(fp_gyroOffset[i], 3);
   }
 
-  enableMotorUpdates = true;
+  enableMotorUpdates = bEnableOld;
 }
 
 
@@ -225,6 +227,7 @@ void gyroOffsetCalibration_LSQ(MPU6050 * p_mpu, int16_t * p_offsets)
 bool accelCalibration(MPU6050 * p_mpu, float * offsets, float * scales)
 {
 
+	bool bEnableOld = enableMotorUpdates;
 	enableMotorUpdates = false;
 	switchOffMotors();
 
@@ -252,7 +255,7 @@ bool accelCalibration(MPU6050 * p_mpu, float * offsets, float * scales)
 	scales[1] = scale.y;
 	scales[2] = scale.z;
 
-	enableMotorUpdates = true;
+	enableMotorUpdates = bEnableOld; //true;
 
 	return ret;
 }

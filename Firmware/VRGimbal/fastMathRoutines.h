@@ -25,6 +25,9 @@
 
 #include "wirish.h"
 
+
+
+
 // Fast arctan2
 float ultraFastAtan2(float y, float x);
 
@@ -92,7 +95,8 @@ inline int32_t constrain_int32(int32_t x , int32_t l, int32_t h) {
 inline float Rajan_FastArcTan(float x);
 
 // atan2 for all quadrants by A. Hahn
-inline float Rajan_FastArcTan2(float y, float x);
+//inline float Rajan_FastArcTan2(float y, float x);
+float Rajan_FastArcTan2(float y, float x);
 
 //// atan2 returnig degrees * 100
 //int16_t Rajan_FastArcTan2_deg100(float y, float x);
@@ -111,5 +115,9 @@ inline void utilLP_float(float * q, float i, float coeff) {
 #define POLYNOMIAL 0xD8  /* 11011 followed by 0's */
 typedef uint8_t crc;
 crc crcSlow(uint8_t const message[], int nBytes);
+
+
+
+#define atan2_substitute Rajan_FastArcTan2
 
 #endif // _FASTMATHROUTINES_H_

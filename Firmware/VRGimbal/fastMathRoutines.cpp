@@ -75,10 +75,9 @@ float ultraFastAtan2(float y, float x)
    return(angle* (180.0f / PI));
 }
 
-#define fp_is_neg(val) ((((byte*)&val)[3] & 0x80) != 0)
-
 float fastAtan2(float y, float x) // in deg
 {
+  #define fp_is_neg(val) ((((byte*)&val)[3] & 0x80) != 0)
   float z = y / x;
   int16_t zi = abs(int16_t(z * 100));
   int8_t y_neg = fp_is_neg(y);
@@ -98,6 +97,7 @@ float fastAtan2(float y, float x) // in deg
 
 //inline
 int16_t _atan2(float y, float x){
+  #define fp_is_neg(val) ((((uint8_t*)&val)[3] & 0x80) != 0)
   float z = y / x;
   int16_t zi = abs(int16_t(z * 100)); 
   int8_t y_neg = fp_is_neg(y);
@@ -147,7 +147,8 @@ inline float Rajan_FastArcTan(float x) {
 }
 
 // atan2 for all quadrants by A. Hahn
-inline float Rajan_FastArcTan2(float y, float x) {
+//inline float Rajan_FastArcTan2(float y, float x) {
+float Rajan_FastArcTan2(float y, float x) {
 
   uint8_t qCode;
   const float pi_2 = PI/2.0;
@@ -264,3 +265,52 @@ crc crcSlow(uint8_t const message[], int nBytes)
     return (remainder);
 
 }   /* crcSlow() */
+
+/*
+//BUTTERWORTH
+
+void getLPCoefficientsButterworth2Pole(const int samplerate, const double cutoff, double* const ax, double* const by)
+{
+    //double PI      = 3.1415926535897932385;
+    double sqrt2 = 1.4142135623730950488;
+
+    double QcRaw  = (2 * PI * cutoff) / samplerate; // Find cutoff frequency in [0..PI]
+    double QcWarp = tan(QcRaw); // Warp cutoff frequency
+
+    double gain = 1 / (1+sqrt2/QcWarp + 2/(QcWarp*QcWarp));
+    by[2] = (1 - sqrt2/QcWarp + 2/(QcWarp*QcWarp)) * gain;
+    by[1] = (2 - 2 * 2/(QcWarp*QcWarp)) * gain;
+    by[0] = 1;
+    ax[0] = 1 * gain;
+    ax[1] = 2 * gain;
+    ax[2] = 1 * gain;
+}
+
+
+
+
+
+double xv[3];
+double yv[3];
+
+void filter(double* samples, int count)
+{
+   double ax[3];
+   double by[3];
+
+   getLPCoefficientsButterworth2Pole(44100, 5000, ax, by);
+
+   for (int i=0;i<count;i++)
+   {
+       xv[2] = xv[1]; xv[1] = xv[0];
+       xv[0] = samples[i];
+       yv[2] = yv[1]; yv[1] = yv[0];
+
+       yv[0] =   (ax[0] * xv[0] + ax[1] * xv[1] + ax[2] * xv[2]
+                    - by[1] * yv[0]
+                    - by[2] * yv[1]);
+
+       samples[i] = yv[0];
+   }
+}
+*/

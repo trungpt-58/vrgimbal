@@ -95,6 +95,7 @@ void initManualControllers()
 
 	cliSerial->print("Init axis\r\n");
 
+#if (MANUAL_INPUT_COUNT != 0)
 
 	//pin map
 	uint8 pins[] = {
@@ -111,7 +112,7 @@ void initManualControllers()
 	{
 		init_axis(i, pins[i], config.manCmdAxisParam[i]);
 	}
-
+#endif
 }
 
 /********************************/

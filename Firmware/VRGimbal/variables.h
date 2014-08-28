@@ -35,6 +35,7 @@ enum MAN_CMD_AXIS_Mode
 	//DigitalPullDown
 };
 
+#pragma pack(push, 1)
 typedef struct MAN_CMD_AXIS_config{
 	uint16_t	Mode;
 	uint16_t	Min;
@@ -61,6 +62,7 @@ typedef struct rcChannelConfig
 	int16_t LPF;        //low pass filter in absoulte mode
 
 	int8_t resetChannel;
+	int8_t modeChannel;
 
 } rcChannelConfig_t;
 
@@ -83,6 +85,7 @@ typedef struct motorAxisConfig
 	int16_t driveLimit1Angle;
 	int16_t driveLimit2Angle;
 	int16_t maxGyroDrive;
+
 
 } motorAxisConfig_t;
 
@@ -110,7 +113,9 @@ struct configProfile
 	bool enableACC;            // enable acc attitude update
 	bool enableMAG;
 	int16_t accTimeConstant;
-	int8_t  mpuLPF;				// mpu LPF 0..6, 0=fastest(256Hz) 6=slowest(5Hz)
+	//int8_t  mpuLPF;				// mpu LPF 0..6, 0=fastest(256Hz) 6=slowest(5Hz)
+	uint16_t mpuLPF;
+	uint16_t mpu2LPF;
 
 
 	//frequenza Motori
@@ -126,6 +131,8 @@ struct configProfile
 	int16_t pwmPhaseC;
 */
 	uint8_t pwmFormula;
+	int32_t pwmFormulaA;
+	int32_t pwmFormulaB;
 
 	//parametri RC
 	bool rcModePPM;            // RC mode, true=common RC PPM channel, false=separate RC channels
@@ -143,6 +150,7 @@ struct config_t
 
 	//IMU calibration information
 	calibrationVector gyroOffset[MAX_IMU_COUNT];
+	calibrationVector gyroDeadBand[MAX_IMU_COUNT];
 	calibrationVector accOffset[MAX_IMU_COUNT];
 	calibrationVector accScale[MAX_IMU_COUNT];
 	calibrationVector magMin;
@@ -167,6 +175,62 @@ struct config_t
 
 };
 
+typedef struct PIDdata {
+  int32_t   Kp, Ki, Kd;
+} PIDdata_t;
+
+struct rcData_t
+{
+ uint32_t microsRisingEdge;
+ uint32_t microsLastUpdate;
+ uint16_t rx;
+ bool     update;
+ bool     valid;
+ float    rcSpeed;
+ float    setpoint;
+};
+
+struct rcConfig_t
+{
+	int16 minOut;
+	int16 maxOut;
+
+	int16 Mid;
+	int16 DeadBand;
+	int16 Gain;
+	int16 LPF;
+
+};
+
+
+//********************
+// sensor orientation
+//********************
+typedef struct sensorAxisDef {
+  char idx;
+  int  dir;
+} t_sensorAxisDef;
+
+typedef struct sensorOrientationDef {
+  t_sensorAxisDef Gyro[3];
+  t_sensorAxisDef Acc[3];
+  t_sensorAxisDef Mag[3];
+} t_sensorOrientationDef;
+
+
+typedef struct fp_vector {
+  float X;
+  float Y;
+  float Z;
+} t_fp_vector_def;
+
+typedef union {
+  float   A[3];
+  t_fp_vector_def V;
+} t_fp_vector;
+
+
+#pragma pack(pop)
 
 #ifdef ENABLE_AP_PARAM
 //#define BRUGI_CONFIG_EEPROM_POS BOARD_EEPROM_SIZE - sizeof(config_t) //44
@@ -185,9 +249,7 @@ void initPIDs();
 void setDefaultParameters();
 
 
-typedef struct PIDdata {
-  int32_t   Kp, Ki, Kd;
-} PIDdata_t;
+
 
 extern PIDdata_t pitchPIDpar;
 extern PIDdata_t rollPIDpar;
@@ -221,26 +283,22 @@ extern int8_t yawDirection;
 
 extern int freqCounter; // TODO: back to char later ...
 
-extern int pitchMotorDrive;
-extern int rollMotorDrive;
-extern int yawMotorDrive;
+extern int32_t pitchMotorDrive;
+extern int32_t rollMotorDrive;
+extern int32_t yawMotorDrive;
 
-extern int pitchMotorDrive_PREV;
-extern int rollMotorDrive_PREV;
-extern int yawMotorDrive_PREV;
-extern int pitchMotorDrive_INT_step;
-extern int rollMotorDrive_INT_step;
-extern int yawMotorDrive_INT_step;
+extern int32_t pitchMotorDrive_PREV;
+extern int32_t rollMotorDrive_PREV;
+extern int32_t yawMotorDrive_PREV;
+extern int32_t pitchMotorDrive_INT_step;
+extern int32_t rollMotorDrive_INT_step;
+extern int32_t yawMotorDrive_INT_step;
 extern bool motor_update_values;
 
 // control motor update in ISR
 extern bool enableMotorUpdates;
 
 
-// Variables for MPU6050
-extern float gyroPitch;
-extern float gyroRoll; //in deg/s
-extern float gyroYaw; //in deg/s
 
 extern float resolutionDevider;
 extern int16_t x_val;
@@ -258,35 +316,18 @@ extern bool PitchResetting;
 extern bool RollResetting;
 extern bool YawResetting;
 
+extern bool PitchLocked;
+extern bool RollLocked;
+extern bool YawLocked;
+
 extern int count;
 
 // RC control
 
-struct rcData_t
-{
- uint32_t microsRisingEdge;
- uint32_t microsLastUpdate;
- uint16_t rx;
- bool     update;
- bool     valid;
- float    rcSpeed;
- float    setpoint;
-};
 
 extern rcData_t rcData[RC_DATA_SIZE];
 
 
-struct rcConfig_t
-{
-	int16 minOut;
-	int16 maxOut;
-
-	int16 Mid;
-	int16 DeadBand;
-	int16 Gain;
-	int16 LPF;
-
-};
 
 extern rcConfig_t rcConfig[RC_DATA_SIZE];
 
@@ -296,7 +337,8 @@ extern float rcLPF_tc[RC_DATA_SIZE];
 enum gimStateType {
  GIM_IDLE=0,      // no PID
  GIM_UNLOCKED,    // PID on, fast ACC
- GIM_LOCKED       // PID on, slow ACC
+ GIM_LOCKED,
+ GIM_ERROR		// no PID
 };
 
 extern gimStateType gimState;
@@ -329,38 +371,15 @@ enum cart_axisDef {
 };
 
 
-typedef struct fp_vector {
-  float X;
-  float Y;
-  float Z;
-} t_fp_vector_def;
-
-typedef union {
-  float   A[3];
-  t_fp_vector_def V;
-} t_fp_vector;
 
 
 
-//********************
-// sensor orientation
-//********************
-typedef struct sensorAxisDef {
-  char idx;
-  int  dir;
-} t_sensorAxisDef;
-
-typedef struct sensorOrientationDef {
-  t_sensorAxisDef Gyro[3];
-  t_sensorAxisDef Acc[3];
-  t_sensorAxisDef Mag[3];
-} t_sensorOrientationDef;
 
 extern t_sensorOrientationDef sensorDef;
 
 // gyro calibration value
 extern int16_t gyroOffset[3];
-
+extern int16_t gyroDeadBand[3];
 extern float gyroScale;
 
 extern int32_t accSmooth[3];
@@ -369,7 +388,9 @@ extern float accADC[3];
 
 //IMU aggiuntiva
 extern int16_t gyroOffset2[3];
+extern int16_t gyroDeadBand2[3];
 extern int16_t gyroADC2[3];
+extern float gyroADC2_lfp[3];
 
 
 //accel calibration
@@ -388,7 +409,7 @@ extern float AccComplFilterConst;  // filter constant for complementary filter
 
 extern int16_t acc_25deg;      //** TODO: check
 
-extern float angle[3];  // absolute angle inclination of MOTOR AXIS in multiple of 0.01 degree    180 deg = 18000
+extern int32_t angle[3];  // absolute angle inclination of MOTOR AXIS in multiple of 0.01 degree    180 deg = 18000
 
 //extern float estimAngle[3];
 //extern float angleIMU[3];  // absolute angle inclination of IMU in multiple of 0.01 degree    180 deg = 18000
@@ -423,12 +444,13 @@ extern realtimeStatistics interrupt_mean_lap;
 
 extern realtimeStatistics loop_mean_lap;
 
+extern realtimeStatistics pid_mean_duration;
+extern realtimeStatistics imu_mean_duration;
+extern realtimeStatistics rc_mean_duration;
+
 #define GIMBAL_TEST_COUNT 10
 extern bool g_bTest[GIMBAL_TEST_COUNT];
 
-extern bool g_bTestYawMotor;
-extern float g_fTestYawMotorValue;
-extern float g_fTestYawMotorSpeed;
 
 
 //stima della prua del supporto --> per il follow

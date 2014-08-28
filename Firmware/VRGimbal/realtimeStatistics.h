@@ -28,24 +28,26 @@
 #ifndef REALTIMESTATISTICS_H_
 #define REALTIMESTATISTICS_H_
 
+#include "wirish.h"
+
 class realtimeStatistics {
 public:
 	realtimeStatistics();
 	virtual ~realtimeStatistics();
 
 	void clear();
-	void append(float v);
-	float mean();
-	float sqdev();
-	float stddev();
-	float vmin();
-	float vmax();
+	int append(uint32_t uv);
+	int32_t mean();
+	int32_t sqdev();
+	int32_t stddev();
+	int32_t vmin();
+	int32_t vmax();
 protected:
 	unsigned int m_count;
-	float m_mean;
-	float m_sqdev;
-	float m_min;
-	float m_max;
+	int32_t m_mean;
+	int32_t m_sqdev;
+	int32_t m_min;
+	int32_t m_max;
 };
 
 #endif /* REALTIMESTATISTICS_H_ */

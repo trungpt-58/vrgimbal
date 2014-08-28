@@ -21,7 +21,7 @@
 #ifndef _MAIN_H
 #define _MAIN_H
 
-#define THISFIRMWARE "VRGimbal 1.14a "
+#define THISFIRMWARE "VRGimbal 1.16a  "
 
 #include <wirish.h>
 
@@ -182,6 +182,8 @@ extern void evaluateRC();
 /* SerialCom ************************************************************/
 extern void setSerialProtocol();
 extern void gyroReadCalibration();
+extern void gyroReadDeadBand();
+extern void accReadCalibration();
 /************************************************************************/
 
 /* IMU ******************************************************************/
@@ -233,11 +235,14 @@ extern AP_AHRS_DCM						ahrs;
 extern void initIMU();
 extern void initSensorOrientation();
 extern void readGyros();
+extern uint32_t get_gyro_lap();
 extern void updateGyroAttitude();
 extern void updateACCAttitude();
 extern void getAttiduteAngles();
 extern void readACC(axisDef axis);
+extern void readACC2(axisDef axis);
 extern void updateACC();
+extern void setIMU2LPF(); //float decayTime);
 
 #ifdef GIMBAL_ENABLE_COMPASS
 extern void readMAG(); //axisDef axis);
@@ -273,6 +278,10 @@ extern void switchOffAndMoveToPosition(uint8_t motorNumber, uint8_t maxPWM, int 
 extern void setPositionAndPower(uint8_t motorNumber, uint8_t pwm, int position);
 extern void switchOffMotors();
 extern void motorInterrupt();
+extern void motorReadCurrent();
+extern float getMotorCurrent(uint8_t axis);
+extern uint16_t getMotorCurrentRaw(uint8_t axis);
+
 /************************************************************************/
 
 /* BruGi ****************************************************************/
@@ -282,6 +291,7 @@ void initMPUlpf(MPU6050 * p_mpu);
 #endif
 bool read_config();
 void write_config();
+void updateDriveLPF();
 /************************************************************************/
 
 /* TIMERS ***************************************************************/

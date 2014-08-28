@@ -73,8 +73,9 @@ void copyRCLPF()
 {
 	config.profiles[0].rcConfig[axisPITCH].LPF = config.profiles[0].rcConfig[axisROLL].LPF;
 	config.profiles[0].rcConfig[axisYAW].LPF = config.profiles[0].rcConfig[axisROLL].LPF;
-
+#ifdef GIMBAL_ENABLE_RC
 	initRC();
+#endif
 }
 
 void copyRCAbsolute()
@@ -119,7 +120,8 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"gyroYawKd",       INT32, &config.profiles[0].axisConfig[axisYAW].Kd,        &initPIDs},
 	#ifdef IMU_BRUGI
 	{"accTimeConstant", INT16, &config.profiles[0].accTimeConstant,  &initIMU},
-	{"mpuLPF",          INT8,  &config.profiles[0].mpuLPF,           &initIMU_LPF},
+	{"mpuLPF",          UINT16,  &config.profiles[0].mpuLPF,           &initIMU_LPF},
+	{"mpu2LPF",         UINT16,  &config.profiles[0].mpu2LPF,           &initIMU_LPF},
 	#endif
 	{"angleOffsetPitch",INT16, &config.profiles[0].axisConfig[axisPITCH].angleOffset, NULL},
 	{"angleOffsetRoll", INT16, &config.profiles[0].axisConfig[axisROLL].angleOffset,  NULL},
@@ -129,26 +131,27 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"dirMotorRoll",    INT8,  &config.profiles[0].axisConfig[axisROLL].motorDirection,     NULL},
 	{"dirMotorYaw",     INT8,  &config.profiles[0].axisConfig[axisYAW].motorDirection,      NULL},
 
-	{"stepsMotorPitch", INT16,  &config.profiles[0].axisConfig[axisPITCH].stepsMotor,    NULL},
-	{"stepsMotorRoll",  INT16,  &config.profiles[0].axisConfig[axisROLL].stepsMotor,     NULL},
-	{"stepsMotorYaw",   INT16,  &config.profiles[0].axisConfig[axisYAW].stepsMotor,      NULL},
+	{"stepsMotorPitch", UINT16,  &config.profiles[0].axisConfig[axisPITCH].stepsMotor,    NULL},
+	{"stepsMotorRoll",  UINT16,  &config.profiles[0].axisConfig[axisROLL].stepsMotor,     NULL},
+	{"stepsMotorYaw",   UINT16,  &config.profiles[0].axisConfig[axisYAW].stepsMotor,      NULL},
 
 	{"offsetMotorPitch",INT16,  &config.profiles[0].axisConfig[axisPITCH].offsetMotor,    NULL},
 	{"offsetMotorRoll", INT16,  &config.profiles[0].axisConfig[axisROLL].offsetMotor,     NULL},
 	{"offsetMotorYaw",  INT16,  &config.profiles[0].axisConfig[axisYAW].offsetMotor,      NULL},
 
 
-	{"limitMotorPitch",INT16,  &config.profiles[0].axisConfig[axisPITCH].stepsLimit,    NULL},
-	{"limitMotorRoll", INT16,  &config.profiles[0].axisConfig[axisROLL].stepsLimit,     NULL},
-	{"limitMotorYaw",  INT16,  &config.profiles[0].axisConfig[axisYAW].stepsLimit,      NULL},
+	{"limitMotorPitch",UINT16,  &config.profiles[0].axisConfig[axisPITCH].stepsLimit,    &updateDriveLPF},
+	{"limitMotorRoll", UINT16,  &config.profiles[0].axisConfig[axisROLL].stepsLimit,     &updateDriveLPF},
+	{"limitMotorYaw",  UINT16,  &config.profiles[0].axisConfig[axisYAW].stepsLimit,      &updateDriveLPF},
 
 
-	{"motorNumberPitch",UINT8, &config.profiles[0].axisConfig[axisPITCH].motorNumber, NULL},
-	{"motorNumberRoll", UINT8, &config.profiles[0].axisConfig[axisROLL].motorNumber,  NULL},
-	{"motorNumberYaw",  UINT8, &config.profiles[0].axisConfig[axisYAW].motorNumber,   NULL},
+	{"motorNumberPitch",INT8, &config.profiles[0].axisConfig[axisPITCH].motorNumber, NULL},
+	{"motorNumberRoll", INT8, &config.profiles[0].axisConfig[axisROLL].motorNumber,  NULL},
+	{"motorNumberYaw",  INT8, &config.profiles[0].axisConfig[axisYAW].motorNumber,   NULL},
 	{"maxPWMmotorPitch",UINT8, &config.profiles[0].axisConfig[axisPITCH].maxPWM,  NULL}, //&recalcMotorStuff},
 	{"maxPWMmotorRoll", UINT8, &config.profiles[0].axisConfig[axisROLL].maxPWM,   NULL}, //&recalcMotorStuff},
 	{"maxPWMmotorYaw",  UINT8, &config.profiles[0].axisConfig[axisYAW].maxPWM,    NULL}, //&recalcMotorStuff},
+
 
 	{"pwmFrequency",   	UINT8, &config.profiles[0].pwmFrequency,  &resetMotorFreq},
 	{"pwmMode",   	UINT8, &config.profiles[0].pwmMode,  &resetMotorFreq},
@@ -160,7 +163,9 @@ const t_configDef PROGMEM configListPGM[] = {
 //	{"pwmPhaseB",   	INT16, &config.profiles[0].pwmPhaseB,  &recalcMotorStuff},
 //	{"pwmPhaseC",   	INT16, &config.profiles[0].pwmPhaseC,  &recalcMotorStuff},
 
-	{"pwmFormula",   	INT16, &config.profiles[0].pwmFormula,  &recalcMotorStuff},
+	{"pwmFormula",   	UINT8, &config.profiles[0].pwmFormula,  &recalcMotorStuff},
+	{"pwmFormulaA",   	INT32, &config.profiles[0].pwmFormulaA,  NULL}, //&recalcMotorStuff},
+	{"pwmFormulaB",   	INT32, &config.profiles[0].pwmFormulaB,  NULL}, //&recalcMotorStuff},
 
 
 	{"minRCPitch",      INT16,  &config.profiles[0].rcConfig[axisPITCH].minOutput,        NULL},
@@ -193,6 +198,11 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"rcChResetPitch",  INT8,  &config.profiles[0].rcConfig[axisPITCH].resetChannel,    NULL},
 	{"rcChResetRoll",   INT8,  &config.profiles[0].rcConfig[axisROLL].resetChannel,     NULL},
 	{"rcChResetYaw",    INT8,  &config.profiles[0].rcConfig[axisYAW].resetChannel,      NULL},
+
+	{"rcChModePitch",  INT8,  &config.profiles[0].rcConfig[axisPITCH].modeChannel,    NULL},
+	{"rcChModeRoll",   INT8,  &config.profiles[0].rcConfig[axisROLL].modeChannel,     NULL},
+	{"rcChModeYaw",    INT8,  &config.profiles[0].rcConfig[axisYAW].modeChannel,      NULL},
+
 
 	{"rcMid",           INT16, &config.profiles[0].rcMid,             NULL},
 	//{"rcAbsolute",      BOOL,  &config.profiles[0].rcConfig[axisROLL].absolute,        &copyRCAbsolute},
@@ -248,15 +258,15 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"recalibrate",    	BOOL,  &(config.recalibrateOnStartup),         NULL},
 
 	//12345678901234567
-	//	{"t_readGyros",    		BOOL,  &(g_bTest[0]),         &resetTests},
-	//	{"t_getAttiduteAng",    BOOL,  &(g_bTest[1]),         &resetTests},
-	//	{"t_changedrive",    	BOOL,  &(g_bTest[2]),         &resetTests},
-	//	{"t_readACC",		    BOOL,  &(g_bTest[3]),         &resetTests},
-	//	{"t_updateACC",		    BOOL,  &(g_bTest[4]),         &resetTests},
-	//	{"test5",    BOOL,  &(g_bTest[5]),         &resetTests},
-	//	{"test6",    BOOL,  &(g_bTest[6]),         &resetTests},
-		{"t_dbgDrive",    BOOL,  &(g_bTest[7]),         NULL},
-	//	{"t_printPWMsin",    BOOL,  &(g_bTest[8]),         &resetTests},
+	{"t_onlyIMU2",    	BOOL,  &(g_bTest[0]),         NULL},
+	{"t_FdT_Yaw",    	BOOL,  &(g_bTest[1]),         NULL},
+//	{"t_changedrive",   BOOL,  &(g_bTest[2]),         &resetTests},
+//	{"t_readACC",		BOOL,  &(g_bTest[3]),         &resetTests},
+//	{"t_updateACC",		BOOL,  &(g_bTest[4]),         &resetTests},
+//	{"test5",    		BOOL,  &(g_bTest[5]),         &resetTests},
+//	{"test6",    		BOOL,  &(g_bTest[6]),         &resetTests},
+	{"t_dbgDrive",    	BOOL,  &(g_bTest[7]),         NULL},
+//	{"t_printPWMsin",    BOOL,  &(g_bTest[8]),         &resetTests},
 	{"t_reversePWM",    BOOL,  &(g_bTest[9]),         &resetTests},
 
 	//12345678901234567
@@ -273,6 +283,15 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"gyro2offsetX",  	INT16,  &(config.gyroOffset[1].X), NULL},
 	{"gyro2offsetY",  	INT16,  &(config.gyroOffset[1].Y), NULL},
 	{"gyro2offsetZ",  	INT16,  &(config.gyroOffset[1].Z), NULL},
+
+	{"gyro1deadbandX",  INT16,  &(config.gyroDeadBand[0].X), &gyroReadDeadBand},
+	{"gyro1deadbandY",  INT16,  &(config.gyroDeadBand[0].Y), &gyroReadDeadBand},
+	{"gyro1deadbandZ",  INT16,  &(config.gyroDeadBand[0].Z), &gyroReadDeadBand},
+
+	{"gyro2deadbandX",  INT16,  &(config.gyroDeadBand[1].X), &gyroReadDeadBand},
+	{"gyro2deadbandY",  INT16,  &(config.gyroDeadBand[1].Y), &gyroReadDeadBand},
+	{"gyro2deadbandZ",  INT16,  &(config.gyroDeadBand[1].Z), &gyroReadDeadBand},
+
 
 	{"acc1offsetX",  	INT16,  &(config.accOffset[0].X), NULL},
 	{"acc1offsetY",  	INT16,  &(config.accOffset[0].Y), NULL},
@@ -408,7 +427,11 @@ void parameterMod() {
 void updateAllParameters() {
   recalcMotorStuff();
   initPIDs();
+  updateDriveLPF();
   initIMU();
+
+  gyroReadDeadBand();
+
 
 #ifdef IMU_BRUGI
   initMPUlpf(&mpu);
@@ -430,12 +453,12 @@ void setDefaultParametersAndUpdate() {
 
 void moveMotor()
 {
-  int motor = atoi(sCmd.next());
-  int steps = 10;
-  char * str = sCmd.next();
-  if (str)
-	  steps = atoi(str);
-  motorMove((uint8_t) motor, steps);
+//  int motor = atoi(sCmd.next());
+//  int steps = 10;
+//  char * str = sCmd.next();
+//  if (str)
+//	  steps = atoi(str);
+//  motorMove((uint8_t) motor, steps);
 
 }
 
@@ -838,6 +861,17 @@ void gyroReadCalibration()
 	gyroOffset2[0] = config.gyroOffset[1].X;
 	gyroOffset2[1] = config.gyroOffset[1].Y;
 	gyroOffset2[2] = config.gyroOffset[1].Z;
+}
+
+void gyroReadDeadBand()
+{
+	gyroDeadBand[0] = config.gyroDeadBand[0].X;
+	gyroDeadBand[1] = config.gyroDeadBand[0].Y;
+	gyroDeadBand[2] = config.gyroDeadBand[0].Z;
+	gyroDeadBand2[0] = config.gyroDeadBand[1].X;
+	gyroDeadBand2[1] = config.gyroDeadBand[1].Y;
+	gyroDeadBand2[2] = config.gyroDeadBand[1].Z;
+
 }
 
 
@@ -1652,6 +1686,34 @@ void testMotorMovement()
 	float lap_mean = 0;
 	uint32_t output_tm = 0;
 
+	int c = -1;
+	cliSerial->printf("Press a key to switch on motor" );
+	while (c == -1)
+	{
+		delay(1);
+		c = cliSerial->read();
+		if (c != -1)
+			break;
+	}
+	c = -1;
+	//attivo il motore e lo "fisso"
+	//int i = currentStepMotor[motor - 1];
+	uint8_t mtid = config.profiles[0].axisConfig[mtr].motorNumber;
+	uint8_t pwr = config.profiles[0].axisConfig[mtr].maxPWM;
+	setPositionAndPower(mtid+1, pwr, 0); //currentStepMotor[mtid] );
+
+
+	cliSerial->printf("Press a key to start rotation" );
+	while (c == -1)
+	{
+		delay(1);
+		c = cliSerial->read();
+		if (c != -1)
+			break;
+	}
+	c = -1;
+
+
 	int i = 0;
 	if ((mtr >= 0) && (mtr < 3))
 	{
@@ -1688,6 +1750,13 @@ void testMotorMovement()
 					lap_mean = (lap_mean * (float) i + pid_lap) / (float)(i + 1);
 				}
 
+				if (bDebugMotor)
+				{
+					uint16 isense1 = analogRead( BOARD_MOT1_ISENSE );
+					uint16 isense2 = analogRead( BOARD_MOT2_ISENSE );
+					uint16 isense3 = analogRead( BOARD_MOT3_ISENSE );
+					cliSerial->printf(F("ISENSE %d %d %d\r\n"), isense1, isense2, isense3);
+				}
 				i++;
 			}
 
@@ -1713,6 +1782,16 @@ void testMotorMovement()
 	cliSerial->println(" ms.");
 	cliSerial->print(interrupt_mean_lap.mean());
 	cliSerial->println(" ms.");
+
+	cliSerial->printf("Press a key to stop test." );
+	while (c == -1)
+	{
+		delay(1);
+		c = cliSerial->read();
+		if (c != -1)
+			break;
+	}
+	c = -1;
 
 
 }

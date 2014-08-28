@@ -163,9 +163,8 @@ void SerialCommand::readSerial() {
 			  #endif
 
 			  // Compare the found command against the list of known commands for a match
-			  for (int u = 0; command[u] != '\0'; u++)   // as no strnicmp exists ...
-				command[u] = (char)tolower(command[u]);
-
+			  for (int i = 0; command[i] != '\0'; i++)   // as no strnicmp exists ...
+				command[i] = (char)tolower(command[i]);
 			  if (strncmp(command, commandList[i].command, SERIALCOMMAND_MAXCOMMANDLENGTH) == 0) {
 				#ifdef SERIALCOMMAND_DEBUG
 				  _ser_port->print(F("Matched Command: "));

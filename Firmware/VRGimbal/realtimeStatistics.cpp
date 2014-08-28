@@ -48,11 +48,19 @@ void realtimeStatistics::clear()
 	m_max = 0.0f;
 }
 
-void realtimeStatistics::append(float v)
+int realtimeStatistics::append(uint32_t uv)
 {
+	int32_t v = (int32_t) uv;
+
 	m_count++;
-	float m_prev = m_mean;
-	m_mean = m_mean + (v - m_mean) / m_count;
+
+	//faccio una finta media mobile per evitare di arrivare su numeri troppo elevati
+	if (m_count > 100)
+		m_count = 100;
+
+	int32_t m_prev = m_mean;
+//	m_mean = m_mean + (v - m_mean) / m_count;
+	m_mean = ((m_count - 1) * m_mean + v ) / m_count;
 	m_sqdev = m_sqdev + (v - m_mean) * (v - m_prev);
 	if (m_count == 1)
 	{
@@ -64,28 +72,28 @@ void realtimeStatistics::append(float v)
 	}
 }
 
-float realtimeStatistics::mean()
+int32_t realtimeStatistics::mean()
 {
 	return m_mean;
 }
 
-float realtimeStatistics::sqdev()
+int32_t realtimeStatistics::sqdev()
 {
 	return m_sqdev;
 }
 
-float realtimeStatistics::vmin()
+int32_t realtimeStatistics::vmin()
 {
 	return m_min;
 }
 
-float realtimeStatistics::vmax()
+int32_t realtimeStatistics::vmax()
 {
 	return m_max;
 }
 
 
-float realtimeStatistics::stddev()
+int32_t realtimeStatistics::stddev()
 {
 	if ( m_count > 0)
 		return sqrt(m_sqdev/ m_count);
