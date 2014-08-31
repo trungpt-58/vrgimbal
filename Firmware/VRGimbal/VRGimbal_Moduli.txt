@@ -1,0 +1,79 @@
+
+BLcontroller.cpp
+	modulo per la gestione della movimentazione dei motori
+
+BruGi.cpp
+	modulo principale contenente anche le funzioni PID
+	
+calibrationAccel.cpp
+	calibrazione accelerometro
+	
+calibrationRoutines.cpp
+calibrationRoutines.h
+	implementazione di LeastMean Squares usato nelle calibrazioni
+	
+CompassHMC5843.cpp
+CompassHMC5843.h
+	NON USATO (driver del compass)
+
+config.h
+defines.h
+definitions.h
+	definizioni e opzioni di configurazione
+
+EEPROMAnything.h
+	lettura e scrittura dei dati di configurazione in EEPROM
+	
+fastMathRoutines.cpp
+fastMathRoutines.h
+	funzioni matematiche
+
+IMU.cpp
+IMU_AP.cpp
+IMU_EVV.cpp
+IMU_EVV_testfusion.cpp
+IMU_EVV_v1.cpp
+	varie versioni di calcolo dell'assetto.
+	Ora si usa IMU_EVV
+
+main.h
+	main header
+	
+ManualCmd.cpp
+	interpretazione dei dati delle analogiche (joystick)
+	
+MPU6050.cpp
+MPU6050.h
+	driver della IMU
+	
+orientationRoutines.cpp
+	calibrazione giroscopio
+	
+Parameters.cpp
+Parameters.h
+	NON USATO (tentativo di integrazione di AP_Param)
+
+RCdecode.cpp
+	interpretazione dei dati RC (letti da APM_RC) e joystick
+	
+realtimeStatistics.cpp
+realtimeStatistics.h
+	classe di comodo per effettuare statistiche su variabili a piacere
+	
+SerialCom.cpp
+	implementazione dei comandi da seriale
+	
+SerialCommand.cpp
+SerialCommand.h
+	classe per la decodifica dei comandi
+	
+utilities.cpp
+	funzioni varie
+	
+variables.cpp
+variables.h
+	definizione delle variabili globali
+	e della struttura dei dati di configurazione
+	
+
+
