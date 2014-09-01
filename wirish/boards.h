@@ -83,6 +83,8 @@ extern void boardInit(void);
 
 #if defined(BOARD_laserlab_VR_GIMBAL_F1)
 #include "laserlab_VR_GIMBAL_F1.h"
+#elif defined(BOARD_laserlab_VR_UGIMBAL_F1)
+ #include "laserlab_VR_UGIMBAL_F1.h"
 #else
 /*
  * TODO turn this into a warning so people can:
