@@ -1142,11 +1142,11 @@ void loop()
 			cliSerial->print(driveSetYaw);cliSerial->print(F(" "));
 			cliSerial->print(yawMotorDrive);cliSerial->print(F(" "));
 			cliSerial->print(yawDiffDrive);cliSerial->print(F(" "));
-
+#ifdef BOARD_MOT1_ISENSE
 			cliSerial->print(getMotorCurrentRaw(axisYAW));cliSerial->print(F(" "));
 			float I = 1000.0f * getMotorCurrent(axisYAW);
 			cliSerial->print(I);cliSerial->print(F(" "));
-
+#endif
 			cliSerial->println();
 
 		}

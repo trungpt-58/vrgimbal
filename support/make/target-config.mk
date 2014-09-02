@@ -9,6 +9,14 @@ ifeq ($(BOARD), laserlab_VR_GIMBAL_F1)
    SRAM_SIZE      := 49152
 endif
 
+ifeq ($(BOARD), laserlab_VR_UGIMBAL_F1)
+   MCU            := STM32F103RC
+   MCU_TYPE       := STM32F10x
+   MCU_DENSITY    := STM32F10X_HD
+   DENSITY        := STM32_HIGH_DENSITY
+   FLASH_SIZE     := 262144
+   SRAM_SIZE      := 49152
+endif
 
 # Memory target-specific configuration values
 

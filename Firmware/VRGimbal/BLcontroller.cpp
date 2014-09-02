@@ -825,7 +825,7 @@ void motorInterrupt()
 	ulast_motor_interrupt = unow;
 }
 
-//#ifdef BOARD_MOT1_ISENSE
+#ifdef BOARD_MOT1_ISENSE
 uint16_t motorI[BOARD_MOTOR_COUNT];
 
 #if BOARD_MOTOR_COUNT > 2
@@ -856,7 +856,7 @@ float getMotorCurrent(uint8_t axis)
 	float v = 3.3f *( (float) motorI[i]/ 4096.0f ) / 250.0f;  //--> 250 Ohm di resistenza di prova
 	return v;
 }
-//#endif
+#endif
 
 void motorMove(uint8_t motorNum, int steps)
 {

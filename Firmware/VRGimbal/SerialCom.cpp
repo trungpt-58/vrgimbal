@@ -1752,10 +1752,12 @@ void testMotorMovement()
 
 				if (bDebugMotor)
 				{
+#ifdef BOARD_MOT1_ISENSE
 					uint16 isense1 = analogRead( BOARD_MOT1_ISENSE );
 					uint16 isense2 = analogRead( BOARD_MOT2_ISENSE );
 					uint16 isense3 = analogRead( BOARD_MOT3_ISENSE );
 					cliSerial->printf(F("ISENSE %d %d %d\r\n"), isense1, isense2, isense3);
+#endif
 				}
 				i++;
 			}

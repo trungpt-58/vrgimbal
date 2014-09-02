@@ -53,6 +53,12 @@
     #define USB_DISC_DEV         _GPIOC
     #define USB_DISC_PIN         4
 
+#elif defined(BOARD_laserlab_VR_UGIMBAL_F1)
+
+    #define VCOM_ID_PRODUCT      0x0004
+    #define USB_DISC_DEV         _GPIOC
+    #define USB_DISC_PIN         4
+
 #else
 
 #error ("Sorry! the USB stack relies on LeafLabs board-specific "       \
