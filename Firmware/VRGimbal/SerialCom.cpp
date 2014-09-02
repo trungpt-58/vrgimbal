@@ -223,7 +223,7 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"driveLimit2Angle",INT16,  &config.profiles[0].axisConfig[axisROLL].driveLimit2Angle,    &copyFollow},
 	{"maxGyroDrive",    INT16,  &config.profiles[0].axisConfig[axisROLL].maxGyroDrive,        &copyFollow},
 
-
+#ifdef MANUAL_INPUT_COUNT
 	{"joy0Mode",       	UINT16,  &(config.manCmdAxisParam[0].Mode),        &initManualControllers},
 	{"joy0Min",        	UINT16,  &(config.manCmdAxisParam[0].Min),         &initManualControllers},
 	{"joy0Mid",        	UINT16,  &(config.manCmdAxisParam[0].Mid),         &initManualControllers},
@@ -254,6 +254,7 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"joy5Mid",        	UINT16,  &(config.manCmdAxisParam[5].Mid),         &initManualControllers},
 	{"joy5Max",        	UINT16,  &(config.manCmdAxisParam[5].Max),         &initManualControllers},
 
+#endif
 
 	{"recalibrate",    	BOOL,  &(config.recalibrateOnStartup),         NULL},
 
@@ -293,6 +294,15 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"gyro2deadbandZ",  INT16,  &(config.gyroDeadBand[1].Z), &gyroReadDeadBand},
 
 
+	{"gyro1saturationX",  INT16,  &(config.gyroSaturation[0].X), &gyroReadDeadBand},
+	{"gyro1saturationY",  INT16,  &(config.gyroSaturation[0].Y), &gyroReadDeadBand},
+	{"gyro1saturationZ",  INT16,  &(config.gyroSaturation[0].Z), &gyroReadDeadBand},
+
+	{"gyro2saturationX",  INT16,  &(config.gyroSaturation[1].X), &gyroReadDeadBand},
+	{"gyro2saturationY",  INT16,  &(config.gyroSaturation[1].Y), &gyroReadDeadBand},
+	{"gyro2saturationZ",  INT16,  &(config.gyroSaturation[1].Z), &gyroReadDeadBand},
+
+
 	{"acc1offsetX",  	INT16,  &(config.accOffset[0].X), NULL},
 	{"acc1offsetY",  	INT16,  &(config.accOffset[0].Y), NULL},
 	{"acc1offsetZ",  	INT16,  &(config.accOffset[0].Z), NULL},
@@ -308,6 +318,8 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"acc2scaleX",  	INT16,  &(config.accScale[1].X), NULL},
 	{"acc2scaleY",  	INT16,  &(config.accScale[1].Y), NULL},
 	{"acc2scaleZ",  	INT16,  &(config.accScale[1].Z), NULL},
+
+	{"saturationLock",  UINT32,  &(config.profiles[0].saturationLock), NULL},
 
 
 	{NULL, BOOL, NULL, NULL} // terminating NULL required !!
@@ -872,6 +884,14 @@ void gyroReadDeadBand()
 	gyroDeadBand2[1] = config.gyroDeadBand[1].Y;
 	gyroDeadBand2[2] = config.gyroDeadBand[1].Z;
 
+
+	gyroSaturation[0] = config.gyroSaturation[0].X;
+	gyroSaturation[1] = config.gyroSaturation[0].Y;
+	gyroSaturation[2] = config.gyroSaturation[0].Z;
+	gyroSaturation2[0] = config.gyroSaturation[1].X;
+	gyroSaturation2[1] = config.gyroSaturation[1].Y;
+	gyroSaturation2[2] = config.gyroSaturation[1].Z;
+
 }
 
 
@@ -934,8 +954,8 @@ void accReadCalibration()
 	accScale2[0] = ((float) config.accScale[1].X) / CONFIG_FLOAT_SCALING;
 	accScale2[1] = ((float) config.accScale[1].Y) / CONFIG_FLOAT_SCALING;
 	accScale2[2] = ((float) config.accScale[1].Z) / CONFIG_FLOAT_SCALING;
-
 }
+
 /*
 void setMotorDirNo()
 {
@@ -1750,15 +1770,15 @@ void testMotorMovement()
 					lap_mean = (lap_mean * (float) i + pid_lap) / (float)(i + 1);
 				}
 
+#ifdef BOARD_MOT1_ISENSE
 				if (bDebugMotor)
 				{
-#ifdef BOARD_MOT1_ISENSE
 					uint16 isense1 = analogRead( BOARD_MOT1_ISENSE );
 					uint16 isense2 = analogRead( BOARD_MOT2_ISENSE );
 					uint16 isense3 = analogRead( BOARD_MOT3_ISENSE );
 					cliSerial->printf(F("ISENSE %d %d %d\r\n"), isense1, isense2, isense3);
-#endif
 				}
+#endif
 				i++;
 			}
 
@@ -1998,9 +2018,10 @@ void setSerialProtocol()
 
   sCmd.addCommand("vrs", printVersion);
 
+#ifdef MANUAL_INPUT_COUNT
   sCmd.addCommand("jyc", ManCmdAxisCalibration);
   sCmd.addCommand("jyo", toggleJoyOutput);
-
+#endif
 
   sCmd.addCommand("gsc", gyroSaveCalibration);
   sCmd.addCommand("grc", gyroReadCalibration);

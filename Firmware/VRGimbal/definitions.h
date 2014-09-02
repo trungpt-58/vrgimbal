@@ -36,8 +36,8 @@
 
 
 #define VERSION_STATUS A // A = Alpha; B = Beta , N = Normal Release
-#define VERSION 116
-#define VERSION_EEPROM 17
+#define VERSION 119
+#define VERSION_EEPROM 19
 
 
 #define MOTOR_COUNT 3

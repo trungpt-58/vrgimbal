@@ -138,6 +138,7 @@ struct configProfile
 	bool rcModePPM;            // RC mode, true=common RC PPM channel, false=separate RC channels
 	int16_t rcMid;             // rc channel center ms
 
+	uint32_t saturationLock;
 
 };
 
@@ -151,6 +152,7 @@ struct config_t
 	//IMU calibration information
 	calibrationVector gyroOffset[MAX_IMU_COUNT];
 	calibrationVector gyroDeadBand[MAX_IMU_COUNT];
+	calibrationVector gyroSaturation[MAX_IMU_COUNT];
 	calibrationVector accOffset[MAX_IMU_COUNT];
 	calibrationVector accScale[MAX_IMU_COUNT];
 	calibrationVector magMin;
@@ -162,10 +164,10 @@ struct config_t
 	bool axisReverseZ;
 	bool axisSwapXY;
 
-
+#ifdef MANUAL_INPUT_COUNT
 	//parametri Joystick
 	MAN_CMD_AXIS_config_t manCmdAxisParam[MANUAL_INPUT_COUNT];
-
+#endif
 
 	uint8_t profilesCount;
 	uint8_t currentProfile;
@@ -338,7 +340,8 @@ enum gimStateType {
  GIM_IDLE=0,      // no PID
  GIM_UNLOCKED,    // PID on, fast ACC
  GIM_LOCKED,
- GIM_ERROR		// no PID
+ GIM_ERROR,		// no PID
+ GIM_SATURATION  //protezione in caso di "botte" fermo i motori
 };
 
 extern gimStateType gimState;
@@ -380,6 +383,7 @@ extern t_sensorOrientationDef sensorDef;
 // gyro calibration value
 extern int16_t gyroOffset[3];
 extern int16_t gyroDeadBand[3];
+extern int16_t gyroSaturation[3];
 extern float gyroScale;
 
 extern int32_t accSmooth[3];
@@ -389,6 +393,7 @@ extern float accADC[3];
 //IMU aggiuntiva
 extern int16_t gyroOffset2[3];
 extern int16_t gyroDeadBand2[3];
+extern int16_t gyroSaturation2[3];
 extern int16_t gyroADC2[3];
 extern float gyroADC2_lfp[3];
 
@@ -459,5 +464,7 @@ extern float estimSupportYawSmooth;
 
 
 extern int g_driveAlert[3];
+
+extern uint32_t g_saturationLockStart;
 
 #endif //_VARIABLES_H_

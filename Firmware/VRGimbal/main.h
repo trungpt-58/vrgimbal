@@ -21,7 +21,7 @@
 #ifndef _MAIN_H
 #define _MAIN_H
 
-#define THISFIRMWARE "VRGimbal 1.16a  "
+#define THISFIRMWARE "VRGimbal 1.19a  "
 
 #include <wirish.h>
 
@@ -234,7 +234,7 @@ extern AP_AHRS_DCM						ahrs;
 
 extern void initIMU();
 extern void initSensorOrientation();
-extern void readGyros();
+extern bool readGyros();
 extern uint32_t get_gyro_lap();
 extern void updateGyroAttitude();
 extern void updateACCAttitude();
@@ -278,10 +278,11 @@ extern void switchOffAndMoveToPosition(uint8_t motorNumber, uint8_t maxPWM, int 
 extern void setPositionAndPower(uint8_t motorNumber, uint8_t pwm, int position);
 extern void switchOffMotors();
 extern void motorInterrupt();
+#ifdef BOARD_MOT1_ISENSE
 extern void motorReadCurrent();
 extern float getMotorCurrent(uint8_t axis);
 extern uint16_t getMotorCurrentRaw(uint8_t axis);
-
+#endif
 /************************************************************************/
 
 /* BruGi ****************************************************************/
@@ -305,10 +306,12 @@ extern uint32 fast_loopTimer;			//   20 ms frequency -   50 Hz
 /************************************************************************/
 
 /* Joystick *************************************************************/
+#ifdef MANUAL_INPUT_COUNT
 extern void initManualControllers();
 extern void ManCmdAxisCalibration();
 extern uint16_t getManCmdAxisRC(uint8 nAxis);
 extern void getManCmdAxisValue(uint8 nAxis, uint16_t* val);
+#endif
 /************************************************************************/
 
 extern void print_vector(Vector3i v);

@@ -256,8 +256,9 @@ int getRCDataChannel(int index)
 	return -1;
 }
 
-
+#ifdef MANUAL_INPUT_COUNT
 uint32_t last_joystick[RC_DATA_SIZE] = {0};
+#endif
 
 void updateRCsignals()
 {
@@ -306,6 +307,7 @@ void updateRCsignals()
 	}
 #endif
 
+#ifdef MANUAL_INPUT_COUNT
 	bool bJoystickUpdated = false; //eseguo solo una lettura per ciclo per non rallentare
 
 	uint32_t now = millis();
@@ -370,6 +372,7 @@ void updateRCsignals()
 //			rcData[RC_DATA_YAW].update = true;
 //		}
 //	}
+#endif
 
 }
 
@@ -499,6 +502,7 @@ void evaluateRC()
 	evalRCChannelAbsolute(&rcData[RC_DATA_MODE_ROLL], 0, 1, config.profiles[0].rcMid + RC_DEADBAND);
 	evalRCChannelAbsolute(&rcData[RC_DATA_MODE_PITCH], 0, 1, config.profiles[0].rcMid + RC_DEADBAND);
 	evalRCChannelAbsolute(&rcData[RC_DATA_MODE_YAW], 0, 1, config.profiles[0].rcMid + RC_DEADBAND);
+
 
 }
 

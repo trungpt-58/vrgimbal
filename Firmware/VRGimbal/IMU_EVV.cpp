@@ -212,10 +212,12 @@ void setIMU2LPF() //float decayTime)
 float _readGyros_lap = 0.0f;
 uint32_t _readGyros_lap_us = 0;
 
-void readGyros() {
+bool readGyros() {
 	int16_t axisRot[3];
 	uint8_t idx;
 	int i;
+
+	bool bSaturated = false;
 
 
 	//misuro il tempo dall'ultima lettura
@@ -242,6 +244,19 @@ void readGyros() {
 			gyroADC[i] = axisRot[idx]-gyroOffset[idx];
 			if ((gyroADC[i] < gyroDeadBand[idx]) && (gyroADC[i] > -gyroDeadBand[idx]))
 				gyroADC[i] = 0;
+			if (gyroSaturation[idx] > 0)
+			{
+				if (gyroADC[i] < -gyroSaturation[idx])
+				{
+					gyroADC[i] = -gyroSaturation[idx];
+					bSaturated = true;
+				}
+				if (gyroADC[i] > gyroSaturation[idx])
+				{
+					gyroADC[i] = gyroSaturation[idx];
+					bSaturated = true;
+				}
+			}
 			gyroADC[i] *= sensorDef.Gyro[i].dir;
 		}
 
@@ -257,6 +272,19 @@ void readGyros() {
 			gyroADC2[i] = axisRot[idx]-gyroOffset2[idx];
 			if ((gyroADC2[i] < gyroDeadBand2[idx]) && (gyroADC2[i] > -gyroDeadBand2[idx]))
 				gyroADC2[i] = 0;
+			if (gyroSaturation2[idx] > 0)
+			{
+				if (gyroADC2[i] < -gyroSaturation2[idx])
+				{
+					gyroADC2[i] = -gyroSaturation2[idx];
+					bSaturated = true;
+				}
+				if (gyroADC2[i] > gyroSaturation2[idx])
+				{
+					gyroADC2[i] = gyroSaturation2[idx];
+					bSaturated = true;
+				}
+			}
 			gyroADC2[i] *= sensorDef.Gyro[i].dir;
 		}
 #else
@@ -281,11 +309,25 @@ void readGyros() {
 		gyroADC2[i] = rotYaw - gyroOffset2[idx];
 		if ((gyroADC2[i] < gyroDeadBand2[idx]) && (gyroADC2[i] > -gyroDeadBand2[idx]))
 			gyroADC2[i] = 0;
+		if (gyroSaturation2[idx] > 0)
+		{
+			if (gyroADC2[i] < -gyroSaturation2[idx])
+			{
+				gyroADC2[i] = -gyroSaturation2[idx];
+				bSaturated = true;
+			}
+			if (gyroADC2[i] > gyroSaturation2[idx])
+			{
+				gyroADC2[i] = gyroSaturation2[idx];
+				bSaturated = true;
+			}
+		}
 		gyroADC2[i] *= sensorDef.Gyro[i].dir;
 
 #endif
 	}
 
+	return bSaturated;
 }
 
 void readACC(axisDef axis) {

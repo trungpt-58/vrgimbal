@@ -27,6 +27,8 @@
 
 #include "main.h"
 
+#ifdef MANUAL_INPUT_COUNT
+
 #define STR_THEN						" then"
 #define STR_PRESS_ENTER					" press ENTER"
 
@@ -358,3 +360,4 @@ uint16_t getManCmdAxisRC(uint8 nAxis)
 }
 
 
+#endif

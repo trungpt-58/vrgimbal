@@ -47,6 +47,11 @@ void setDefaultParameters()
 		config.gyroDeadBand[i].Y = 0;
 		config.gyroDeadBand[i].Z = 0;
 
+		config.gyroSaturation[i].X = 0;
+		config.gyroSaturation[i].Y = 0;
+		config.gyroSaturation[i].Z = 0;
+
+
 		config.accOffset[i].X = (int16_t) (CONFIG_FLOAT_SCALING * 0.0f);
 		config.accOffset[i].Y = (int16_t) (CONFIG_FLOAT_SCALING * 0.0f);
 		config.accOffset[i].Z = (int16_t) (CONFIG_FLOAT_SCALING * 0.0f);
@@ -115,6 +120,8 @@ void setDefaultParameters()
   config.profiles[0].pwmFrequency = 8;
   config.profiles[0].pwmMode = 0;
 
+  config.profiles[0].saturationLock = 0;
+
   /*
   config.profiles[0].pwmMin = 0;
   config.profiles[0].pwmMax = 10000;
@@ -154,6 +161,7 @@ void setDefaultParameters()
   config.profiles[0].axisConfig[axisYAW].maxGyroDrive = 30;
 
 
+
   config.profiles[0].rcModePPM = false;
 
   config.profiles[0].rcConfig[axisROLL].channel = 3;
@@ -181,7 +189,7 @@ void setDefaultParameters()
   config.axisSwapXY=false;
 
 
-
+#ifdef MANUAL_INPUT_COUNT
 
   for(uint8 n_axis = 0; n_axis < MANUAL_INPUT_COUNT; n_axis++)
   {
@@ -193,6 +201,8 @@ void setDefaultParameters()
   	  config.manCmdAxisParam[n_axis].Mid = 2048;
   	  config.manCmdAxisParam[n_axis].Max = 4096;
   }
+#endif
+
   config.profiles[0].enableMAG = true;
   config.recalibrateOnStartup = true;
 
@@ -327,6 +337,7 @@ t_sensorOrientationDef sensorDef = {
 // gyro calibration value
 int16_t gyroOffset[3] = {0, 0, 0};
 int16_t gyroDeadBand[3] = {0, 0, 0};
+int16_t gyroSaturation[3] = {0, 0, 0};
 
 
 
@@ -339,6 +350,7 @@ float accADC[3];
 
 int16_t gyroOffset2[3] = {0, 0, 0};
 int16_t gyroDeadBand2[3] = {0, 0, 0};
+int16_t gyroSaturation2[3] = {0, 0, 0};
 int16_t gyroADC2[3];
 float gyroADC2_lfp[3];
 
@@ -400,3 +412,5 @@ bool g_bTest[GIMBAL_TEST_COUNT] = { false };
 
 
 int g_driveAlert[3] = { -1, -1, -1 };
+
+uint32_t g_saturationLockStart = 0;

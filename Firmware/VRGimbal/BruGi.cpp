@@ -438,7 +438,9 @@ void setup()
   initRCPins();
 #endif
 
+#ifdef MANUAL_INPUT_COUNT
   initManualControllers();
+#endif
 
   LEDGREPIN_OFF
   
@@ -741,7 +743,7 @@ void loop()
 		motor_loopTimer = now;
 		motorUpdate = false;
     
-		readGyros();
+		bool bGyroSaturated = readGyros();
 
 		main_loop_duration[0].append( measure_micro_delay(unowlap, micros()) );
 		unowlap = micros();
@@ -815,6 +817,22 @@ void loop()
 		int new_pitchMotorDrive = pitchMotorDrive;
 		int new_rollMotorDrive = rollMotorDrive;
 		int new_yawMotorDrive = yawMotorDrive;
+
+
+		//verifico la protezione da saturazione gyro
+		if ((config.profiles[0].saturationLock > 0) && (bGyroSaturated))
+		{
+			if ((gimState == GIM_LOCKED) || (gimState == GIM_SATURATION))  //--> quando riattivo la stabilizzazione potrei ricevere delle piccole scosse
+			{
+				g_saturationLockStart = millis();
+				enableMotorUpdates = false;
+				LEDGREPIN_OFF
+				setACCFastMode(true);
+				gimState = GIM_SATURATION;
+				stateStart = g_saturationLockStart;
+			}
+		}
+
 		//****************************
 		// pitch PID
 		//****************************
@@ -1114,6 +1132,13 @@ void loop()
 		else
 			LEDGREPIN_OFF
 
+		if (gimState == GIM_SATURATION)
+		{
+			if (bLedOn)
+				LEDPIN_OFF
+			else
+				LEDPIN_ON
+		}
 
 		if (g_bTest[7])
 		{
@@ -1162,13 +1187,14 @@ void loop()
 									//cliSerial->print(F(" "));cliSerial->print(rc_mean_duration.mean());
 									//cliSerial->print(F(" "));cliSerial->print(pid_mean_duration.mean());   //loop_mean_lap.vmax());
 
+#ifdef DEBUG_LOOP_DURATION  //TEO 20140902 evito di sporcare troppo l'output
 									for (int i = 0; i < 19; i++) {
 										cliSerial->print(F(" ["));
 										cliSerial->print(i);
 										cliSerial->print(F("]"));
 										cliSerial->print(main_loop_duration[i].mean());
 									}
-
+#endif
 									cliSerial->println();
 		}
 
@@ -1254,6 +1280,7 @@ void loop()
 			cliSerial->println();
 		}
 
+#ifdef MANUAL_INPUT_COUNT
 		if (g_bSendJoyOutput)
 		{
 			cliSerial->print("JOY "); cliSerial->print(now); cliSerial->print("\t");
@@ -1265,6 +1292,7 @@ void loop()
 			}
 			cliSerial->println();
 		}
+#endif
 	}
 
 	main_loop_duration[7].append( measure_micro_delay(unowlap, micros()) );
@@ -1318,6 +1346,21 @@ void loop()
 							stateStart = now;
 						}
 						break;
+
+					case GIM_SATURATION :
+						enableMotorUpdates = false;
+						LEDGREPIN_OFF
+						setACCFastMode(true);
+						// wait 2 sec to settle ACC, before PID controlerbecomes active
+						if (now - stateStart >= config.profiles[0].saturationLock)
+						{
+							gimState = GIM_UNLOCKED;
+							stateStart = now;
+							g_saturationLockStart = 0;
+						}
+						break;
+
+
 					case GIM_UNLOCKED :
 						enableMotorUpdates = true;
 						LEDGREPIN_ON
