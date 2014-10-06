@@ -161,9 +161,13 @@ void initSensorOrientation() {
 
 void setACCFastMode (bool fastMode) {
 	if (fastMode) {
-		AccComplFilterConst = (float)DT_FLOAT/(2.0 + DT_FLOAT); // 2 sec
+		AccComplFilterConst = (float)DT_FLOAT/(1.0 + DT_FLOAT); // 2 sec
+		AccComplFilterConst2 = AccComplFilterConst;
 	} else {
 		AccComplFilterConst = (float)DT_FLOAT/(config.profiles[0].accTimeConstant + DT_FLOAT);
+		AccComplFilterConst2 = (float)DT_FLOAT/(config.profiles[0].accTimeConstantSat + DT_FLOAT);
+		if (AccComplFilterConst < AccComplFilterConst2)
+			AccComplFilterConst2 = AccComplFilterConst;
 	}
 }
 
@@ -233,10 +237,9 @@ bool readGyros() {
 		_readGyros_lap = DT_FLOAT;
 
 
-	if (!g_bTest[0])
-	{
-		// read gyros
-		mpu.getRotation(&axisRot[0], &axisRot[1], &axisRot[2]);
+
+	// read gyros
+	mpu.getRotation(&axisRot[0], &axisRot[1], &axisRot[2]);
 
 		for (i = 0; i < 3; i++)
 		{
@@ -260,9 +263,10 @@ bool readGyros() {
 			gyroADC[i] *= sensorDef.Gyro[i].dir;
 		}
 
-	}
-	if (mpu_yaw_present)
+	if (!g_bTest[0])
 	{
+		if (mpu_yaw_present)
+		{
 #ifdef IMU_SECONDARY_ON_ROLL
 		mpu2.getRotation(&axisRot[0], &axisRot[1], &axisRot[2]);
 
@@ -325,8 +329,8 @@ bool readGyros() {
 		gyroADC2[i] *= sensorDef.Gyro[i].dir;
 
 #endif
+		}
 	}
-
 	return bSaturated;
 }
 
@@ -422,6 +426,22 @@ uint32_t  get_gyro_lap()
 	return _readGyros_lap_us;
 }
 
+float getGyroDeg(int eulerAxis)
+{
+	if (eulerAxis == axisYAW)
+	{
+		if (!g_bTest[0])
+		{
+			//SECONDA IMU
+			if (mpu_yaw_present)
+			{
+				return (float) gyroADC2[axisYAW] / resolutionDevider;
+			}
+		}
+	}
+	return (float) gyroADC[eulerAxis] / resolutionDevider;
+}
+
 void updateGyroAttitude(){
 	uint8_t axis;
 
@@ -443,9 +463,11 @@ void updateGyroAttitude(){
 	GyroRate[axisYAW] = -GyroData[axisZ] * cos(fabs(CameraOrient[axisPITCH])) - GyroData[axisY] * sin(CameraOrient[axisPITCH]); //presuming Roll is horizontal
 	CameraOrient[axisYAW] = CameraOrient[axisYAW] + GyroRate[axisYAW] * _readGyros_lap;
 
-	//SECONDA IMU
-	if (mpu_yaw_present)
+	if (!g_bTest[0])
 	{
+		//SECONDA IMU
+		if (mpu_yaw_present)
+		{
 
 		float GyroData2[3];
 		float GyroRate2[EULAR];
@@ -474,7 +496,7 @@ void updateGyroAttitude(){
 		CameraOrient[axisYAW] = CameraOrient2[axisYAW];
 	}
 
-
+	}
 
 //	if (mpu_yaw_present)
 //	{
@@ -525,9 +547,18 @@ void updateACC(){
 
 void updateACCAttitude(){
 //TODO: testare questa modifica e verificare che il range di valori sia corretto
-	if (fabs(accMag * MPU6000_ACCEL_SCALE_1G - GRAVITY) < 0.4 * GRAVITY) {
-		CameraOrient[axisPITCH] = (1.0 - AccComplFilterConst) * CameraOrient[axisPITCH] + AccComplFilterConst * AccAngleSmooth[axisPITCH]; //Pitch Horizon
-		CameraOrient[axisROLL] =  (1.0 - AccComplFilterConst) * CameraOrient[axisROLL]  + AccComplFilterConst * AccAngleSmooth[axisROLL]; //Roll Horizon
+	float accExtra = fabs(accMag * MPU6000_ACCEL_SCALE_1G - GRAVITY);
+	if (accExtra < 0.4 * GRAVITY) {
+
+		//TEO 20141006
+		//indurisco il filtro passabasso al salire dell'accelerazione
+		//(più alta è l'accelerazione più forte è la probabilità che siano intervenute accelerazioni laterali che mi fanno sbagliare la stima)
+		float filter = AccComplFilterConst;
+		filter = (accExtra / (0.4 * GRAVITY)) * (AccComplFilterConst2 - AccComplFilterConst) + AccComplFilterConst;
+
+
+		CameraOrient[axisPITCH] = (1.0 - filter) * CameraOrient[axisPITCH] + filter * AccAngleSmooth[axisPITCH]; //Pitch Horizon
+		CameraOrient[axisROLL] =  (1.0 - filter) * CameraOrient[axisROLL]  + filter * AccAngleSmooth[axisROLL]; //Roll Horizon
 	}
 
 }

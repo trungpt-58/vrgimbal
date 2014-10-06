@@ -36,8 +36,8 @@
 
 
 #define VERSION_STATUS A // A = Alpha; B = Beta , N = Normal Release
-#define VERSION 119
-#define VERSION_EEPROM 19
+#define VERSION 120
+#define VERSION_EEPROM 20
 
 
 #define MOTOR_COUNT 3
@@ -88,7 +88,7 @@ typedef uint16_t pwmsin_t; //uint8_t
 #define POUT_FREQ 5 // 25     // rate of ACC print output in Hz, 25 Hz is default
 
 
-#define IDLE_TIME_SEC 2  // gimbal fast lock time at startup
+#define IDLE_TIME_SEC 5 //2  // gimbal fast lock time at startup
 #define LOCK_TIME_SEC 5  // gimbal fast lock time at startup 
 
 // LP filter coefficient

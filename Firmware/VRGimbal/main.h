@@ -21,7 +21,7 @@
 #ifndef _MAIN_H
 #define _MAIN_H
 
-#define THISFIRMWARE "VRGimbal 1.19a  "
+#define THISFIRMWARE "VRGimbal 1.20b "
 
 #include <wirish.h>
 
@@ -243,6 +243,7 @@ extern void readACC(axisDef axis);
 extern void readACC2(axisDef axis);
 extern void updateACC();
 extern void setIMU2LPF(); //float decayTime);
+extern float getGyroDeg(int eulerAxis);
 
 #ifdef GIMBAL_ENABLE_COMPASS
 extern void readMAG(); //axisDef axis);

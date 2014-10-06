@@ -120,6 +120,7 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"gyroYawKd",       INT32, &config.profiles[0].axisConfig[axisYAW].Kd,        &initPIDs},
 	#ifdef IMU_BRUGI
 	{"accTimeConstant", INT16, &config.profiles[0].accTimeConstant,  &initIMU},
+	{"accTimeConstSat",	INT16, &config.profiles[0].accTimeConstantSat,  &initIMU},
 	{"mpuLPF",          UINT16,  &config.profiles[0].mpuLPF,           &initIMU_LPF},
 	{"mpu2LPF",         UINT16,  &config.profiles[0].mpu2LPF,           &initIMU_LPF},
 	#endif
@@ -259,7 +260,7 @@ const t_configDef PROGMEM configListPGM[] = {
 	{"recalibrate",    	BOOL,  &(config.recalibrateOnStartup),         NULL},
 
 	//12345678901234567
-	{"t_onlyIMU2",    	BOOL,  &(g_bTest[0]),         NULL},
+	{"t_ignoreIMU2",    BOOL,  &(g_bTest[0]),         NULL},
 	{"t_FdT_Yaw",    	BOOL,  &(g_bTest[1]),         NULL},
 //	{"t_changedrive",   BOOL,  &(g_bTest[2]),         &resetTests},
 //	{"t_readACC",		BOOL,  &(g_bTest[3]),         &resetTests},

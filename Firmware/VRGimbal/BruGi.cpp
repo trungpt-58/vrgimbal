@@ -450,9 +450,10 @@ void setup()
   //CH3_OFF
 
   //TEO 20130607
-  if (bMPU_OK)
+  if (bMPU_OK) {
 	  gimState = GIM_IDLE;
-  else
+	  //cliSerial->printf("%d GIM_IDLE\r\n", millis());
+  } else
 	  gimState = GIM_ERROR;
   stateStart = millis();
  
@@ -657,8 +658,10 @@ realtimeStatistics statistic_roll;
 realtimeStatistics statistic_yaw;
 bool bLedOn = false;
 
-realtimeStatistics main_loop_duration[19];
 
+//#ifdef DEBUG_LOOP_DURATION
+realtimeStatistics main_loop_duration[19];
+//#endif
 
 void loop()
 {
@@ -825,7 +828,7 @@ void loop()
 			if ((gimState == GIM_LOCKED) || (gimState == GIM_SATURATION))  //--> quando riattivo la stabilizzazione potrei ricevere delle piccole scosse
 			{
 				g_saturationLockStart = millis();
-				enableMotorUpdates = false;
+//				enableMotorUpdates = false;  --> TEO 20141001 lascio comunque attivi i motori, ma do più peso ad accelerometro
 				LEDGREPIN_OFF
 				setACCFastMode(true);
 				gimState = GIM_SATURATION;
@@ -849,7 +852,7 @@ void loop()
 			float dAngle = normalize_yaw( pitchAngleSet - pitchAngleSet_OLD );
 			gyroDesiredPitch =  dAngle / ((float) pid_lap_us / 1000000.0f);  // /s
 
-			pitchPIDVal = ComputePID(pid_lap_us,  (float) gyroADC[axisPITCH] / resolutionDevider, gyroDesiredPitch , &pitchErrorSum, &pitchErrorOld, pitchPIDpar.Kp, pitchPIDpar.Ki, pitchPIDpar.Kd, &pitchDelta1, &pitchDelta2);
+			pitchPIDVal = ComputePID(pid_lap_us,  (float) getGyroDeg(axisPITCH) , gyroDesiredPitch , &pitchErrorSum, &pitchErrorOld, pitchPIDpar.Kp, pitchPIDpar.Ki, pitchPIDpar.Kd, &pitchDelta1, &pitchDelta2);
 
 			// motor control
 			int drive = pitchPIDVal * (pid_lap_us / 1000) * config.profiles[0].axisConfig[axisPITCH].motorDirection;
@@ -876,7 +879,7 @@ void loop()
 			float dAngle = normalize_yaw( rollAngleSet - rollAngleSet_OLD );
 			gyroDesiredRoll =  dAngle / ((float) pid_lap_us / 1000000.0);  // /s
 
-			rollPIDVal = ComputePID(pid_lap_us,  (float) gyroADC[axisROLL] / resolutionDevider, gyroDesiredRoll , &rollErrorSum, &rollErrorOld, rollPIDpar.Kp, rollPIDpar.Ki, rollPIDpar.Kd, &rollDelta1, &rollDelta2);
+			rollPIDVal = ComputePID(pid_lap_us,  (float) getGyroDeg(axisROLL), gyroDesiredRoll , &rollErrorSum, &rollErrorOld, rollPIDpar.Kp, rollPIDpar.Ki, rollPIDpar.Kd, &rollDelta1, &rollDelta2);
 
 			// motor control
 			int drive = rollPIDVal * (pid_lap_us/1000) * config.profiles[0].axisConfig[axisROLL].motorDirection;
@@ -918,7 +921,7 @@ void loop()
 		else if (config.profiles[0].axisConfig[axisYAW].mode == 1)
 		{
 //			gyroDesiredYaw = yawAngleSet / 10;
-//			yawPIDVal = ComputePID(pid_lap_us, 1000.0f * (float) gyroADC[axisYAW] / resolutionDevider, 1000.0f * gyroDesiredYaw , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
+//			yawPIDVal = ComputePID(pid_lap_us, 1000.0f * getGyroDeg(axisYAW), 1000.0f * gyroDesiredYaw , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
 //			// motor control
 //			int drive = yawPIDVal * config.profiles[0].axisConfig[axisYAW].motorDirection;
 //			new_yawMotorDrive = yawMotorDrive + drive;
@@ -975,7 +978,7 @@ void loop()
 			//TODO: TEO: verificare quale moltiplicazione di config.profiles[0].dirMotorYaw *  genera l'inverzione di segno
 			gyroDesiredYaw = config.profiles[0].axisConfig[axisYAW].motorDirection * gyroDesiredYaw;
 
-			yawPIDVal = ComputePID(pid_lap_us,  (float) gyroADC[axisYAW] / resolutionDevider, gyroDesiredYaw , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
+			yawPIDVal = ComputePID(pid_lap_us,  (float) getGyroDeg(axisYAW), gyroDesiredYaw , &yawErrorSum, &yawErrorOld, yawPIDpar.Kp, yawPIDpar.Ki, yawPIDpar.Kd, &yawDelta1, &yawDelta2);
 			// motor control
 			int drive = yawPIDVal * (pid_lap_us/1000) * config.profiles[0].axisConfig[axisYAW].motorDirection;
 
@@ -991,7 +994,7 @@ void loop()
 			{
 				if ((abs(diff_drive) < driveLimit1) && (yawAngleSet == YawPhiSet))
 				{
-					if (fabs((float) gyroADC[axisYAW] / resolutionDevider) < maxGyro)
+					if (fabs(getGyroDeg(axisYAW)) < maxGyro)
 					{
 						//ho gi raggiunto l'obiettivo: tengo fermo
 						drive = 0;
@@ -1132,7 +1135,7 @@ void loop()
 		else
 			LEDGREPIN_OFF
 
-		if (gimState == GIM_SATURATION)
+		if ((gimState == GIM_SATURATION) || (gimState == GIM_ERROR))
 		{
 			if (bLedOn)
 				LEDPIN_OFF
@@ -1162,7 +1165,7 @@ void loop()
 			cliSerial->print(yawAngleSet);cliSerial->print(F(" "));
 			cliSerial->print(yawAngleSet_OLD);cliSerial->print(F(" "));
 			cliSerial->print(diffDriveAngleYaw);cliSerial->print(F(" "));
-			cliSerial->print(gyroADC[axisYAW] / resolutionDevider);cliSerial->print(F(" "));
+			cliSerial->print(getGyroDeg(axisYAW));cliSerial->print(F(" "));
 			cliSerial->print(gyroDesiredYaw);cliSerial->print(F(" "));
 			cliSerial->print(driveSetYaw);cliSerial->print(F(" "));
 			cliSerial->print(yawMotorDrive);cliSerial->print(F(" "));
@@ -1337,10 +1340,11 @@ void loop()
 				{
 					case GIM_IDLE :
 						enableMotorUpdates = false;
+						LEDPIN_ON
 						LEDGREPIN_OFF
 						setACCFastMode(true);
 						// wait 2 sec to settle ACC, before PID controlerbecomes active
-						if (now - stateStart >= IDLE_TIME_SEC)
+						if (now - stateStart >= IDLE_TIME_SEC * 1000)
 						{
 							gimState = GIM_UNLOCKED;
 							stateStart = now;
@@ -1348,13 +1352,18 @@ void loop()
 						break;
 
 					case GIM_SATURATION :
-						enableMotorUpdates = false;
-						LEDGREPIN_OFF
+						//enableMotorUpdates = false; --> TEO 20141001 lascio comunque attivi i motori, ma do più peso ad accelerometro
+						enableMotorUpdates = true;
+						//LEDGREPIN_OFF
 						setACCFastMode(true);
 						// wait 2 sec to settle ACC, before PID controlerbecomes active
 						if (now - stateStart >= config.profiles[0].saturationLock)
 						{
-							gimState = GIM_UNLOCKED;
+							if (enableMotorUpdates)
+								gimState = GIM_LOCKED;  //gestione "light" della saturazione: i motori erano già attivi quindi riparto subito col ciclo normale
+							else
+								gimState = GIM_UNLOCKED; //gestione estrema della staturazione con motori disattivati: ora che sto uscendo devo ripassare da unlock
+
 							stateStart = now;
 							g_saturationLockStart = 0;
 						}
@@ -1363,10 +1372,11 @@ void loop()
 
 					case GIM_UNLOCKED :
 						enableMotorUpdates = true;
+						LEDPIN_ON
 						LEDGREPIN_ON
 						setACCFastMode(true);
 						// allow PID controller to settle on ACC position
-						if (now - stateStart >= LOCK_TIME_SEC)
+						if (now - stateStart >= LOCK_TIME_SEC * 1000)
 						{
 							gimState = GIM_LOCKED;
 							stateStart = now;
@@ -1378,10 +1388,12 @@ void loop()
 						break;
 					case GIM_LOCKED :
 						// normal operation
+						LEDPIN_ON
 						break;
 					case GIM_ERROR:
 						enableMotorUpdates = false;
-						LEDGREPIN_OFF
+						//LEDPIN_ON
+						LEDGREPIN_ON
 						break;
 				}
 				main_loop_duration[12].append( measure_micro_delay(unowlap, micros()) );

@@ -3,6 +3,30 @@
 //*******************************************************************
 
 //*******************************************************************
+//  v1.20  - 
+//*******************************************************************
+Ridotto ACC_LPF_FACTOR = 5 per evitare overshoot su comando RC (evidentemente l'integrazione del gyro da dei valori troppo bassi rispetto alla posizione reale)
+Modificato APM_RC: portato MINOFFWIDTH = 100 us in modo da poter decodificare anche input RC a 490 Hz (dovuto a problema di integrazione con MicroBrain)
+
+
+//*******************************************************************
+//  v1.19  - 
+//*******************************************************************
+BLController.cpp : 
+	- valori di sfasamento in gradi anzichè in 1/255
+	- provata formula sinusoidale modificata per approssimare meglio curva BackEFM (non ha dato grandi risultati)
+
+Brugi.cpp :
+	- modificate alcune impostazioni di filtraggio MPU
+	- inserito parametro saturationLock per disattivare i motori in caso di fuoriscala dei giroscopi (non usato)
+	- lampeggio led verde in modo da poter verificare funzionalità
+	
+IMU_EVV.cpp
+	- filtro software opzionale su IMU2
+	- funzione atan2 approssimata per velocità di calcolo
+	- inserita DEADBAND e SATURATION per i valori del gyro 
+
+//*******************************************************************
 //  v1.15  - 
 //*******************************************************************
 Inibito il pilotaggio dei motori in caso di fault sulla IMU.

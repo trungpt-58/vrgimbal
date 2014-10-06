@@ -96,7 +96,7 @@
 
 
 /*********************** JOYSTICK *******************************************/
-#if BOARD_ANALOG_COUNT > 0
+#ifdef BOARD_ACTIVATE_JOYSTICK //#if (BOARD_ANALOG_COUNT > 0)
 #define MANUAL_INPUT_COUNT BOARD_ANALOG_COUNT
 #define MANUAL_INPUT_UPDATE_INTERVAL 25 //ms
 #endif

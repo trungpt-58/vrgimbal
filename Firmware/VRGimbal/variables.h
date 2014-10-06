@@ -113,6 +113,7 @@ struct configProfile
 	bool enableACC;            // enable acc attitude update
 	bool enableMAG;
 	int16_t accTimeConstant;
+	int16_t accTimeConstantSat;
 	//int8_t  mpuLPF;				// mpu LPF 0..6, 0=fastest(256Hz) 6=slowest(5Hz)
 	uint16_t mpuLPF;
 	uint16_t mpu2LPF;
@@ -411,6 +412,7 @@ extern float accLPF[3];
 extern float accMag;
 
 extern float AccComplFilterConst;  // filter constant for complementary filter
+extern float AccComplFilterConst2;
 
 extern int16_t acc_25deg;      //** TODO: check
 

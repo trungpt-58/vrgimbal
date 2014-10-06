@@ -86,6 +86,8 @@ void setDefaultParameters()
   config.profiles[0].axisConfig[axisYAW].Ki = 2000;
   config.profiles[0].axisConfig[axisYAW].Kd = 35000;
   config.profiles[0].accTimeConstant = 1;
+  config.profiles[0].accTimeConstantSat = 1;
+
   config.profiles[0].mpuLPF = 0;
   config.profiles[0].axisConfig[axisPITCH].angleOffset = 0;
   config.profiles[0].axisConfig[axisROLL].angleOffset = 0;
@@ -370,6 +372,7 @@ float accLPF[3];
 float accMag = 0;
 
 float AccComplFilterConst = 0;  // filter constant for complementary filter
+float AccComplFilterConst2 = 0;
 
 int16_t acc_25deg = 25;      //** TODO: check
 
